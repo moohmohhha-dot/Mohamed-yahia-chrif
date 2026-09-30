@@ -1,10 +1,9 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createDb } from '@aruma/db';
-import { buildApp } from '../src/app.js';
-import { testDatabaseUrl } from './helpers.js';
+import { buildTestApp, testDatabaseUrl } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
-const app = buildApp(db);
+const app = buildTestApp(db);
 
 beforeAll(() => app.ready());
 afterAll(async () => {

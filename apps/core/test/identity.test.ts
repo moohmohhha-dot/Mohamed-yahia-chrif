@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
-import { buildApp } from '../src/app.js';
-import { bearer, registerUser, testDatabaseUrl, uniqueEmail } from './helpers.js';
+import { bearer, buildTestApp, registerUser, testDatabaseUrl, uniqueEmail } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
-const app = buildApp(db, { authRateLimitMax: 1000 });
+const app = buildTestApp(db);
 
 beforeAll(() => app.ready());
 afterAll(async () => {
@@ -143,7 +142,7 @@ describe('login and sessions', () => {
 
 describe('rate limiting', () => {
   it('limits login attempts per IP', async () => {
-    const limited = buildApp(db, { authRateLimitMax: 2 });
+    const limited = buildTestApp(db, { authRateLimitMax: 2 });
     await limited.ready();
     const attempt = () =>
       limited.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: uniqueEmail(), password: 'x' } });

@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, exists, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import type { Executor } from '../../shared/db.js';
 import { conflict, forbidden, isUniqueViolation, notFound } from '../../shared/errors.js';
@@ -13,10 +13,12 @@ export async function createMerchant(
   db: Database,
   actor: Actor & { userId: string },
   input: {
+    type: 'individual' | 'business';
     slug: string;
     name: string;
-    legalName?: string;
-    country?: string;
+    country: string;
+    activityCode: string;
+    activityDescription?: string;
     contactEmail?: string;
     contactPhone?: string;
   },
@@ -25,8 +27,18 @@ export async function createMerchant(
     return await db.transaction(async (tx) => {
       const [merchant] = await tx.insert(s.merchants).values(input).returning();
       await tx.insert(s.merchantMembers).values({ merchantId: merchant!.id, userId: actor.userId, role: 'owner' });
+      await tx
+        .insert(s.merchantVerifications)
+        .values(
+          (['phone', 'email', 'identity', 'business', 'payout'] as const).map((kind) => ({ merchantId: merchant!.id, kind })),
+        );
       await audit(tx, actor, { action: 'merchants.merchant.created', entityType: 'merchant', entityId: merchant!.id });
-      await recordEvent(tx, { type: 'merchants.merchant.created', aggregateType: 'merchant', aggregateId: merchant!.id });
+      await recordEvent(tx, {
+        type: 'merchants.merchant.created',
+        aggregateType: 'merchant',
+        aggregateId: merchant!.id,
+        payload: { type: input.type, country: input.country, activityCode: input.activityCode },
+      });
       return merchant!;
     });
   } catch (error) {
@@ -137,52 +149,6 @@ export async function removeStaffMember(db: Database, actor: Actor & { userId: s
   });
 }
 
-/** The owner asks the platform to verify the merchant (from unverified or after a rejection). */
-export async function submitVerification(db: Database, actor: Actor & { userId: string }, merchantId: string) {
-  return db.transaction(async (tx) => {
-    await requireMembership(tx, merchantId, actor.userId, ['owner']);
-    const [updated] = await tx
-      .update(s.merchants)
-      .set({ verificationStatus: 'pending', verificationSubmittedAt: new Date(), verificationNote: null })
-      .where(and(eq(s.merchants.id, merchantId), inArray(s.merchants.verificationStatus, ['unverified', 'rejected'])))
-      .returning();
-    if (!updated) throw conflict('INVALID_VERIFICATION_STATE', 'Verification is already pending or approved');
-    await audit(tx, actor, { action: 'merchants.verification.submitted', entityType: 'merchant', entityId: merchantId });
-    await recordEvent(tx, { type: 'merchants.verification.submitted', aggregateType: 'merchant', aggregateId: merchantId });
-    return updated;
-  });
-}
-
-/** Platform staff approve or reject a pending verification. Approval also activates the merchant. */
-export async function decideVerification(
-  db: Database,
-  actor: Actor,
-  merchantId: string,
-  input: { decision: 'approve' | 'reject'; note?: string },
-) {
-  return db.transaction(async (tx) => {
-    const approved = input.decision === 'approve';
-    const [updated] = await tx
-      .update(s.merchants)
-      .set({
-        verificationStatus: approved ? 'verified' : 'rejected',
-        verificationDecidedAt: new Date(),
-        verificationNote: input.note ?? null,
-        ...(approved ? { status: 'active' as const } : {}),
-      })
-      .where(and(eq(s.merchants.id, merchantId), eq(s.merchants.verificationStatus, 'pending')))
-      .returning();
-    if (!updated) {
-      await getMerchant(tx, merchantId); // 404 if missing
-      throw conflict('INVALID_VERIFICATION_STATE', 'Verification is not pending');
-    }
-    const action = approved ? 'merchants.verification.approved' : 'merchants.verification.rejected';
-    await audit(tx, actor, { action, entityType: 'merchant', entityId: merchantId, metadata: { note: input.note ?? null } });
-    await recordEvent(tx, { type: action, aggregateType: 'merchant', aggregateId: merchantId });
-    return updated;
-  });
-}
-
 /** Platform staff allow a merchant to sell in a store (an ARUMA app), with its commission. */
 export async function attachMerchantToStore(
   db: Database,
@@ -207,4 +173,43 @@ export async function attachMerchantToStore(
     });
     return row!;
   });
+}
+
+/** Platform staff: merchants filtered by overall status, type, or a check awaiting review (the review queue). */
+export async function listMerchants(
+  db: Database,
+  filter: {
+    verificationStatus?: Merchant['verificationStatus'];
+    type?: Merchant['type'];
+    checkUnderReview?: (typeof s.verificationKind.enumValues)[number];
+    page: number;
+    pageSize: number;
+  },
+) {
+  const conditions = [];
+  if (filter.verificationStatus) conditions.push(eq(s.merchants.verificationStatus, filter.verificationStatus));
+  if (filter.type) conditions.push(eq(s.merchants.type, filter.type));
+  if (filter.checkUnderReview) {
+    conditions.push(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(s.merchantVerifications)
+          .where(
+            and(
+              eq(s.merchantVerifications.merchantId, s.merchants.id),
+              eq(s.merchantVerifications.kind, filter.checkUnderReview),
+              eq(s.merchantVerifications.status, 'under_review'),
+            ),
+          ),
+      ),
+    );
+  }
+  return db
+    .select()
+    .from(s.merchants)
+    .where(and(...conditions))
+    .orderBy(asc(s.merchants.createdAt))
+    .limit(filter.pageSize)
+    .offset((filter.page - 1) * filter.pageSize);
 }

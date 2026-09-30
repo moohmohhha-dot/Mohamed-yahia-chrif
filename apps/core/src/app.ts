@@ -1,4 +1,5 @@
 import Fastify, { type FastifyServerOptions } from 'fastify';
+import multipart from '@fastify/multipart';
 import rateLimit from '@fastify/rate-limit';
 import { sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
@@ -6,12 +7,22 @@ import type { Database } from '@aruma/db';
 import { AppError, isUniqueViolation } from './shared/errors.js';
 import { authPlugin } from './modules/identity/index.js';
 import { registerModules } from './modules/index.js';
+import type { FileStorage, MessageSender, SecretBox } from './modules/platform/index.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
     db: Database;
+    /** Encrypts sensitive values and files at rest. */
+    secrets: SecretBox;
+    /** Stores uploaded files (merchant documents…). */
+    storage: FileStorage;
+    /** Sends SMS and emails. */
+    messages: MessageSender;
   }
 }
+
+/** External services ARUMA CORE depends on, injected so tests and deployments can swap them. */
+export type CoreServices = { secrets: SecretBox; storage: FileStorage; messages: MessageSender };
 
 export type AppOptions = FastifyServerOptions & {
   /** Max login/register attempts per IP per minute. */
@@ -22,9 +33,16 @@ export type AppOptions = FastifyServerOptions & {
  * Set `trustProxy` only when running behind a known reverse proxy / load balancer; otherwise clients
  * could spoof X-Forwarded-For to change their IP (and bypass rate limits).
  */
-export function buildApp(db: Database, { authRateLimitMax = 10, ...options }: AppOptions = {}) {
+export function buildApp(
+  db: Database,
+  services: CoreServices,
+  { authRateLimitMax = 10, ...options }: AppOptions = {},
+) {
   const app = Fastify(options);
   app.decorate('db', db);
+  app.decorate('secrets', services.secrets);
+  app.decorate('storage', services.storage);
+  app.decorate('messages', services.messages);
 
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof AppError) {
@@ -39,6 +57,9 @@ export function buildApp(db: Database, { authRateLimitMax = 10, ...options }: Ap
       return reply.status(409).send({ error: { code: 'CONFLICT', message: 'Resource already exists' } });
     }
     const status = (error as { statusCode?: number }).statusCode;
+    if (status === 413 || (error as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') {
+      return reply.status(413).send({ error: { code: 'FILE_TOO_LARGE', message: 'The file is too large' } });
+    }
     if (status === 429) {
       return reply.status(429).send({ error: { code: 'RATE_LIMITED', message: 'Too many requests, try again later' } });
     }
@@ -59,6 +80,7 @@ export function buildApp(db: Database, { authRateLimitMax = 10, ...options }: Ap
   });
 
   app.register(rateLimit, { global: false });
+  app.register(multipart);
   app.register(authPlugin);
   app.register(async (scope) => registerModules(scope, { authRateLimitMax }));
 

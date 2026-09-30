@@ -5,6 +5,7 @@
 
 - البنية التقنية وقراراتها: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - ARUMA CORE وخريطة كل الخدمات المشتركة: [docs/CORE.md](docs/CORE.md)
+- نظام التجار والتحقق: [docs/MERCHANTS.md](docs/MERCHANTS.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)
@@ -15,6 +16,7 @@
 pnpm install
 docker compose up -d          # يشغّل PostgreSQL (قاعدة aruma + aruma_test)
 cp .env.example .env
+# ضع في .env قيمة DATA_ENCRYPTION_KEY من: openssl rand -base64 32
 export $(grep -v '^#' .env | xargs)
 
 pnpm db:migrate               # إنشاء الجداول

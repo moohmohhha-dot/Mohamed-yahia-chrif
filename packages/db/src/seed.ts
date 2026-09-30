@@ -131,15 +131,26 @@ export async function seed(db: Database): Promise<void> {
     const [merchant] = await tx
       .insert(s.merchants)
       .values({
+        type: 'business',
         slug: 'mb-parfum',
         name: 'MB Parfum',
         country: 'DZ',
+        activityCode: 'perfume_retail',
         status: 'active',
         verificationStatus: 'verified',
-        verificationDecidedAt: new Date(),
       })
       .returning();
     if (!store || !merchant) throw new Error('Failed to create store or merchant');
+    // Development data: the house merchant is marked verified without real documents.
+    await tx.insert(s.merchantVerifications).values(
+      (['phone', 'email', 'identity', 'business', 'payout'] as const).map((kind) => ({
+        merchantId: merchant.id,
+        kind,
+        status: 'verified' as const,
+        reviewedAt: new Date(),
+        note: 'Seed data',
+      })),
+    );
 
     await tx.insert(s.storeLocales).values(['ar', 'fr', 'en'].map((locale) => ({ storeId: store.id, locale })));
     await tx.insert(s.storeCurrencies).values(['DZD', 'EUR', 'USD'].map((currency) => ({ storeId: store.id, currency })));

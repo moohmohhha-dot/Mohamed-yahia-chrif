@@ -1,6 +1,6 @@
 /** Cross-cutting platform tables: audit trail, domain events (outbox), feature flags. */
 import { sql } from 'drizzle-orm';
-import { boolean, index, inet, jsonb, pgEnum, pgTable, primaryKey, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
+import { boolean, char, index, inet, jsonb, pgEnum, pgTable, primaryKey, smallint, text, timestamp, uuid, varchar } from 'drizzle-orm/pg-core';
 import { id, timestamps } from './common.js';
 import { users } from './identity.js';
 import { stores } from './tenancy.js';
@@ -63,4 +63,24 @@ export const featureFlagOverrides = pgTable(
     enabled: boolean('enabled').notNull(),
   },
   (t) => [primaryKey({ columns: [t.flagKey, t.storeId] })],
+);
+
+/**
+ * One-time codes sent by SMS or email to prove control of a phone number or email address.
+ * Only a hash of the code is stored.
+ */
+export const verificationCodes = pgTable(
+  'verification_codes',
+  {
+    id: id(),
+    purpose: varchar('purpose', { length: 48 }).notNull(), // e.g. merchant.phone
+    subjectId: text('subject_id').notNull(), // e.g. the merchant id
+    target: varchar('target', { length: 254 }).notNull(), // phone number or email address
+    codeHash: char('code_hash', { length: 64 }).notNull(),
+    attempts: smallint('attempts').notNull().default(0),
+    expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
+    consumedAt: timestamp('consumed_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('verification_codes_subject_idx').on(t.purpose, t.subjectId, t.createdAt)],
 );

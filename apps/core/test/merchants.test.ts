@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, inArray } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
-import { buildApp } from '../src/app.js';
-import { bearer, registerUser, testDatabaseUrl } from './helpers.js';
+import { bearer, buildTestApp, registerUser, testDatabaseUrl, verifyMerchantViaApi } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
-const app = buildApp(db, { authRateLimitMax: 1000 });
+const app = buildTestApp(db);
 
 type Req = { method: 'GET' | 'POST' | 'PUT' | 'DELETE'; url: string; token?: string; payload?: unknown };
 const call = ({ method, url, token, payload }: Req) =>
@@ -40,13 +39,21 @@ const offerPayload = (prices: { currency: string; amountMinor: number }[]) => ({
   prices,
 });
 
-describe('merchant lifecycle: create → staff → verify → sell', () => {
+describe('merchant lifecycle: create → staff → verify → sell (details in merchant-verification.test.ts)', () => {
   it('lets any user create a merchant and become its owner', async () => {
     const res = await call({
       method: 'POST',
       url: '/v1/merchants',
       token: owner.token,
-      payload: { slug: 'parfums-el-bahdja', name: 'Parfums El Bahdja', country: 'dz', contactPhone: '+213555000000' },
+      payload: {
+        type: 'business',
+        slug: 'parfums-el-bahdja',
+        name: 'Parfums El Bahdja',
+        country: 'dz',
+        activityCode: 'perfume_retail',
+        contactPhone: '+213555000000',
+        contactEmail: 'contact@el-bahdja.example',
+      },
     });
     expect(res.statusCode).toBe(201);
     const merchant = res.json().data;
@@ -59,7 +66,12 @@ describe('merchant lifecycle: create → staff → verify → sell', () => {
   });
 
   it('rejects duplicate slugs and hides merchants from non-members', async () => {
-    const dup = await call({ method: 'POST', url: '/v1/merchants', token: outsider.token, payload: { slug: 'parfums-el-bahdja', name: 'X' } });
+    const dup = await call({
+      method: 'POST',
+      url: '/v1/merchants',
+      token: outsider.token,
+      payload: { type: 'individual', slug: 'parfums-el-bahdja', name: 'X', country: 'DZ', activityCode: 'perfume_retail' },
+    });
     expect(dup.json().error.code).toBe('SLUG_TAKEN');
     expect((await call({ method: 'GET', url: `/v1/merchants/${merchantId}`, token: outsider.token })).statusCode).toBe(404);
     expect((await call({ method: 'POST', url: '/v1/merchants', payload: { slug: 'x', name: 'x' } })).statusCode).toBe(401);
@@ -108,23 +120,11 @@ describe('merchant lifecycle: create → staff → verify → sell', () => {
     expect(res.json().error.code).toBe('MERCHANT_NOT_VERIFIED');
   });
 
-  it('runs verification: only the owner submits, only admins decide', async () => {
-    const url = `/v1/merchants/${merchantId}/verification`;
-    expect((await call({ method: 'POST', url, token: staff.token })).statusCode).toBe(403);
-    const submitted = await call({ method: 'POST', url, token: owner.token });
-    expect(submitted.json().data.verificationStatus).toBe('pending');
-    expect((await call({ method: 'POST', url, token: owner.token })).json().error.code).toBe('INVALID_VERIFICATION_STATE');
-
-    const adminUrl = `/v1/admin/merchants/${merchantId}/verification`;
-    expect((await call({ method: 'POST', url: adminUrl, token: owner.token, payload: { decision: 'approve' } })).statusCode).toBe(403);
-    const decided = await call({ method: 'POST', url: adminUrl, token: admin.token, payload: { decision: 'approve', note: 'Registre de commerce OK' } });
-    expect(decided.json().data).toMatchObject({ verificationStatus: 'verified', status: 'active' });
-
-    const audits = await db.select().from(s.auditLogs).where(eq(s.auditLogs.entityId, merchantId));
-    expect(audits.map((a) => a.action)).toEqual(
-      expect.arrayContaining(['merchants.merchant.created', 'merchants.verification.submitted', 'merchants.verification.approved']),
-    );
-    expect(audits.find((a) => a.action === 'merchants.verification.approved')!.actorUserId).toBe(admin.userId);
+  it('becomes verified once every required check is approved', async () => {
+    const overview = await verifyMerchantViaApi(app, owner, admin, merchantId);
+    expect(overview.status).toBe('verified');
+    const merchant = (await call({ method: 'GET', url: `/v1/merchants/${merchantId}`, token: owner.token })).json().data;
+    expect(merchant).toMatchObject({ verificationStatus: 'verified', status: 'active' });
   });
 
   it('requires the platform to allow the merchant in the store', async () => {
