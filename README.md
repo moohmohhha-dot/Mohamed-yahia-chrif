@@ -4,6 +4,7 @@
 أول تطبيق فيها: **MB Parfum** للعطور.
 
 - البنية التقنية وقراراتها: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- ARUMA CORE وخريطة كل الخدمات المشتركة: [docs/CORE.md](docs/CORE.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)
@@ -18,7 +19,7 @@ export $(grep -v '^#' .env | xargs)
 
 pnpm db:migrate               # إنشاء الجداول
 pnpm db:seed                  # بيانات MB Parfum التجريبية
-pnpm dev                      # الخادم على http://localhost:3000
+pnpm dev                      # ARUMA CORE على http://localhost:3000
 ```
 
 جرّب مثلًا:

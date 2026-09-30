@@ -5,7 +5,7 @@
  */
 import { eq } from 'drizzle-orm';
 import { createDb, type Database } from './client.js';
-import * as s from './schema.js';
+import * as s from './schema/index.js';
 
 type SamplePerfume = {
   slug: string;
@@ -106,6 +106,14 @@ export async function seed(db: Database): Promise<void> {
       ])
       .onConflictDoNothing();
 
+    await tx
+      .insert(s.featureFlags)
+      .values([
+        { key: 'checkout.cash_on_delivery', description: 'Cash on delivery at checkout', enabledByDefault: true },
+        { key: 'checkout.online_payment', description: 'Online card payment at checkout', enabledByDefault: false },
+      ])
+      .onConflictDoNothing();
+
     const existing = await tx.select({ id: s.stores.id }).from(s.stores).where(eq(s.stores.slug, 'mb-parfum'));
     if (existing.length > 0) return;
 
@@ -120,16 +128,23 @@ export async function seed(db: Database): Promise<void> {
         defaultCurrency: 'DZD',
       })
       .returning();
-    const [vendor] = await tx
-      .insert(s.vendors)
-      .values({ slug: 'mb-parfum', name: 'MB Parfum', country: 'DZ', status: 'active' })
+    const [merchant] = await tx
+      .insert(s.merchants)
+      .values({
+        slug: 'mb-parfum',
+        name: 'MB Parfum',
+        country: 'DZ',
+        status: 'active',
+        verificationStatus: 'verified',
+        verificationDecidedAt: new Date(),
+      })
       .returning();
-    if (!store || !vendor) throw new Error('Failed to create store or vendor');
+    if (!store || !merchant) throw new Error('Failed to create store or merchant');
 
     await tx.insert(s.storeLocales).values(['ar', 'fr', 'en'].map((locale) => ({ storeId: store.id, locale })));
     await tx.insert(s.storeCurrencies).values(['DZD', 'EUR', 'USD'].map((currency) => ({ storeId: store.id, currency })));
     await tx.insert(s.storeCountries).values([{ storeId: store.id, country: 'DZ' }]);
-    await tx.insert(s.storeVendors).values({ storeId: store.id, vendorId: vendor.id });
+    await tx.insert(s.storeMerchants).values({ storeId: store.id, merchantId: merchant.id });
 
     const [brand] = await tx
       .insert(s.brands)
@@ -156,7 +171,7 @@ export async function seed(db: Database): Promise<void> {
         .insert(s.products)
         .values({
           storeId: store.id,
-          vendorId: vendor.id,
+          createdByMerchantId: merchant.id,
           brandId: brand.id,
           slug: perfume.slug,
           status: 'active',
@@ -182,14 +197,18 @@ export async function seed(db: Database): Promise<void> {
             productId: product.id,
             sku: `${perfume.slug}-${v.sizeMl}ml`.toUpperCase(),
             options: { sizeMl: v.sizeMl },
-            stockQuantity: v.stock,
             position: i,
           })
           .returning();
         if (!variant) throw new Error('Failed to create variant');
-        await tx.insert(s.variantPrices).values(
+        const [offer] = await tx
+          .insert(s.offers)
+          .values({ storeId: store.id, variantId: variant.id, merchantId: merchant.id, stockQuantity: v.stock })
+          .returning();
+        if (!offer) throw new Error('Failed to create offer');
+        await tx.insert(s.offerPrices).values(
           Object.entries(v.prices).map(([currency, amount]) => ({
-            variantId: variant.id,
+            offerId: offer.id,
             currency,
             amountMinor: BigInt(amount),
           })),

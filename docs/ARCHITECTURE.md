@@ -22,7 +22,7 @@ MB Parfum، MB Beauty، MB Style، MB Home، MB Tech، MB Sport، MB Drive.
 2. تحديد خصائص منتجاته (مثلًا نوع البشرة بدل نوتات العطر).
 3. واجهة بهوية بصرية خاصة به تعمل على نفس الـAPI.
 
-هذا مُثبَت باختبار آلي (`apps/api/test/multi-store.test.ts`) يشغّل MB Beauty بجانب MB Parfum ويتأكد أن بيانات كل منهما لا تختلط بالآخر.
+هذا مُثبَت باختبار آلي (`apps/core/test/multi-store.test.ts`) يشغّل MB Beauty بجانب MB Parfum ويتأكد أن بيانات كل منهما لا تختلط بالآخر.
 
 ### 2) خدمات المنصة (ARUMA …)
 هذه خدمات مشتركة تخدم كل التطبيقات. كل واحدة ستكون **وحدة (module)** داخل الخادم عندما يحين وقتها،
@@ -38,7 +38,7 @@ MB Parfum، MB Beauty، MB Style، MB Home، MB Tech، MB Sport، MB Drive.
 | ARUMA Business | حسابات الشركات، أسعار الجملة، الفواتير | يستفيد من جداول الأسعار الحالية |
 | ARUMA Developers | API عامة موثّقة، مفاتيح API، Webhooks | لهذا كل مسارات الـAPI تبدأ بـ `/v1` من اليوم الأول |
 | ARUMA Support | تذاكر الدعم مرتبطة بالطلبات | — |
-| ARUMA Trust & Safety | مراقبة التجار والمنتجات، كشف الاحتيال، التقييمات | يعتمد على `store_vendors.status` و`products.status` الموجودَين |
+| ARUMA Trust & Safety | مراقبة التجار والمنتجات، كشف الاحتيال، التقييمات | يعتمد على `merchants.verification_status` و`store_merchants.status` و`products.status` الموجودَين |
 
 ### 3) التوسع الجغرافي
 - **الجزائر أولًا:** الدينار الجزائري (DZD) والعربية افتراضيًا، والفرنسية كلغة أساسية ثانية. الدفع عند الاستلام، والتوصيل حسب الولاية.
@@ -62,12 +62,12 @@ MB Parfum، MB Beauty، MB Style، MB Home، MB Tech، MB Sport، MB Drive.
 
 ```
 apps/
-  api/                 ← الخادم (REST API) لكل المنصة
-    src/modules/       ← كل وحدة عمل في مجلدها: stores, catalog, (لاحقًا: cart, orders, payments…)
+  core/                ← ARUMA CORE: الخادم (REST API) المشترك لكل المنصة — انظر CORE.md
+    src/modules/       ← وحدة لكل مجال: identity, merchants, stores, catalog, offers, platform
     src/shared/        ← أدوات مشتركة (الأخطاء، المال)
     test/              ← الاختبارات
 packages/
-  db/                  ← مخطط قاعدة البيانات، الـmigrations، والبيانات التجريبية
+  db/                  ← مخطط قاعدة البيانات (ملف لكل مجال في src/schema/)، الـmigrations، والبيانات التجريبية
 docs/                  ← التوثيق
 ```
 
@@ -76,25 +76,30 @@ docs/                  ← التوثيق
 ## نموذج البيانات
 
 ```
-store (متجر/تطبيق: MB Parfum)          vendor (تاجر)
-  ├─ store_locales    (ar, fr, en)        └─ store_vendors (أي تاجر يبيع في أي متجر + العمولة)
+user (هوية ARUMA واحدة)                 merchant (تاجر)
+  ├─ accounts (طرق الدخول)                 ├─ merchant_members (مالك / مدير / موظف)
+  ├─ devices                               └─ store_merchants (أين يبيع + العمولة)
+  └─ sessions
+
+store (تطبيق: MB Parfum)
+  ├─ store_locales    (ar, fr, en)
   ├─ store_currencies (DZD, EUR, USD)
   ├─ store_countries  (DZ)
   ├─ categories ─ category_translations
   ├─ brands
-  └─ products (store_id + vendor_id)
-       ├─ product_translations (الاسم والوصف لكل لغة)
-       ├─ product_categories
-       ├─ product_images
-       └─ product_variants (الحجم، المخزون، SKU)
-            └─ variant_prices (سعر صريح لكل عملة)
+  └─ products ─ product_translations, product_categories, product_images
+       └─ product_variants (الحجم، SKU)
+            └─ offers (تاجر + مخزون)          ← عدة تجار لنفس المنتج
+                 └─ offer_prices (سعر صريح لكل عملة)
+
+platform: audit_logs, domain_events, feature_flags, feature_flag_overrides
 ```
 
 ### قرارات مهمة تمنع مشاكل التوسع لاحقًا
 
-1. **كل منتج مرتبط بمتجر وبتاجر.** اليوم MB Parfum هو التاجر الوحيد، وغدًا يدخل تجار آخرون دون تغيير الجداول.
+1. **المنتج مرتبط بالمتجر، والبيع يتم عبر عروض التجار.** اليوم MB Parfum هو التاجر الوحيد، وغدًا يبيع عدة تجار نفس العطر دون تغيير الجداول.
 2. **المال يُخزَّن كعدد صحيح بالوحدة الصغرى** (سنتيم) مع رمز العملة (ISO 4217). لا نستعمل الأعداد العشرية أبدًا، لتجنّب أخطاء التقريب.
-3. **لا تحويل تلقائي للعملات.** لكل حجم سعر محدد لكل عملة. التحويل بسعر الصرف يمكن إضافته لاحقًا كوحدة منفصلة.
+3. **لا تحويل تلقائي للعملات.** لكل عرض سعر محدد لكل عملة. التحويل بسعر الصرف يمكن إضافته لاحقًا كوحدة منفصلة.
 4. **النصوص في جداول ترجمة** وليست داخل جدول المنتج. إضافة لغة جديدة = صفوف جديدة فقط. العربية معرّفة كلغة `rtl`.
 5. **خصائص كل مجال في حقل `attributes` (JSONB).** للعطور: النوتات، التركيز (EDP/EDT)، الجنس. متجر إلكترونيات مستقبلي يستعمل نفس الجداول بخصائص مختلفة.
 6. **المعرّفات UUID** وليست أرقامًا متسلسلة، حتى لا يمكن تخمينها وحتى يسهل دمج البيانات بين الأنظمة.

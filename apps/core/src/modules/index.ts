@@ -1,0 +1,22 @@
+/**
+ * ARUMA CORE module registry. Each module owns its routes, services and tables, and exposes a
+ * public API through its index.ts. Modules may only import each other through that index
+ * (enforced by test/module-boundaries.test.ts), so any of them can later become a separate service.
+ * The full map of planned modules is in docs/CORE.md.
+ */
+import type { FastifyInstance } from 'fastify';
+import { catalogRoutes } from './catalog/index.js';
+import { identityRoutes } from './identity/index.js';
+import { merchantRoutes } from './merchants/index.js';
+import { offerRoutes } from './offers/index.js';
+import { storeRoutes } from './stores/index.js';
+
+export type ModuleOptions = { authRateLimitMax: number };
+
+export async function registerModules(app: FastifyInstance, options: ModuleOptions) {
+  await app.register(identityRoutes, options);
+  await app.register(storeRoutes);
+  await app.register(catalogRoutes);
+  await app.register(merchantRoutes);
+  await app.register(offerRoutes);
+}
