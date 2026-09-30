@@ -4,7 +4,7 @@
  */
 import { and, asc, desc, eq, ilike, inArray, or } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
-import type { Executor } from '../../shared/db.js';
+import { sequential, type Executor } from '../../shared/db.js';
 import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { requireMembership } from '../merchants/index.js';
@@ -229,7 +229,7 @@ export async function updateVariant(
 async function describeProducts(db: Executor, products: (typeof s.products.$inferSelect & { storeSlug: string })[], merchantId: string) {
   if (products.length === 0) return [];
   const ids = products.map((p) => p.id);
-  const [translations, variants, categories, myOffers] = await Promise.all([
+  const [translations, variants, categories, myOffers] = await sequential([
     db.select().from(s.productTranslations).where(inArray(s.productTranslations.productId, ids)),
     db.select().from(s.productVariants).where(inArray(s.productVariants.productId, ids)).orderBy(asc(s.productVariants.position)),
     db

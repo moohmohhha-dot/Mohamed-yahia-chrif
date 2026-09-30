@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
-import type { Executor } from '../../shared/db.js';
+import { sequential, type Executor } from '../../shared/db.js';
 import { AppError, badRequest, conflict, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import {
@@ -39,7 +39,7 @@ export async function individualRequiresRegistration(db: Executor, m: Pick<Merch
 }
 
 export async function loadSnapshot(db: Executor, m: Merchant): Promise<MerchantSnapshot> {
-  const [[identity], [business], [address], [payout], docs] = await Promise.all([
+  const [[identity], [business], [address], [payout], docs] = await sequential([
     db.select().from(s.merchantIdentities).where(eq(s.merchantIdentities.merchantId, m.id)),
     db.select().from(s.merchantBusinessProfiles).where(eq(s.merchantBusinessProfiles.merchantId, m.id)),
     db
@@ -124,7 +124,8 @@ export async function invalidateCheck(db: Executor, merchantId: string, kind: Ch
 export async function getVerificationOverview(db: Executor, merchantId: string) {
   const m = await getMerchantRow(db, merchantId);
   const required = requiredChecks(m.type, await individualRequiresRegistration(db, m));
-  const [snapshot, checks] = await Promise.all([loadSnapshot(db, m), loadChecks(db, merchantId)]);
+  const snapshot = await loadSnapshot(db, m);
+  const checks = await loadChecks(db, merchantId);
   const byKind = new Map(checks.map((c) => [c.kind, c]));
   return {
     merchantId,

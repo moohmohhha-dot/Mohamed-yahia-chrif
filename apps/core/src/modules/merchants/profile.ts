@@ -1,6 +1,6 @@
 import { and, eq, isNull } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
-import type { Executor } from '../../shared/db.js';
+import { sequential, type Executor } from '../../shared/db.js';
 import { notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { audit, type SecretBox } from '../platform/index.js';
@@ -182,7 +182,7 @@ export async function setPayoutMethod(db: Database, secrets: SecretBox, actor: O
  */
 export async function getMerchantFile(db: Executor, secrets: SecretBox, merchantId: string, reveal: boolean) {
   const merchant = await getMerchantRow(db, merchantId);
-  const [[identity], [business], addresses, [payout], documents, verification] = await Promise.all([
+  const [[identity], [business], addresses, [payout], documents] = await sequential([
     db.select().from(s.merchantIdentities).where(eq(s.merchantIdentities.merchantId, merchantId)),
     db.select().from(s.merchantBusinessProfiles).where(eq(s.merchantBusinessProfiles.merchantId, merchantId)),
     db.select().from(s.merchantAddresses).where(eq(s.merchantAddresses.merchantId, merchantId)),
@@ -201,8 +201,8 @@ export async function getMerchantFile(db: Executor, secrets: SecretBox, merchant
       })
       .from(s.merchantDocuments)
       .where(and(eq(s.merchantDocuments.merchantId, merchantId), isNull(s.merchantDocuments.archivedAt))),
-    getVerificationOverview(db, merchantId),
   ]);
+  const verification = await getVerificationOverview(db, merchantId);
 
   return {
     merchant,

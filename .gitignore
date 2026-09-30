@@ -4,3 +4,4 @@ dist/
 *.log
 coverage/
 storage/
+apps/merchant-center/e2e/screenshots/
