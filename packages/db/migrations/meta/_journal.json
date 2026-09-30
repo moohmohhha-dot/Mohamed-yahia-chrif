@@ -15,6 +15,20 @@
       "when": 1790809649247,
       "tag": "0001_merchant_system",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790810354716,
+      "tag": "0002_inventory_movements",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1790810355646,
+      "tag": "0003_append_only_guards",
+      "breakpoints": true
     }
   ]
 }

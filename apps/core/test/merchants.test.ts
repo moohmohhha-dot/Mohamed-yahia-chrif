@@ -27,8 +27,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  // Remove the second merchant so other test files see the original MB Parfum catalog.
-  if (createdMerchantIds.length) await db.delete(s.merchants).where(inArray(s.merchants.id, createdMerchantIds));
+  // Merchants with stock history cannot be deleted (append-only records), so detach the test merchant
+  // from the store instead: other test files then see the original MB Parfum catalog.
+  if (createdMerchantIds.length) {
+    await db.update(s.storeMerchants).set({ status: 'archived' }).where(inArray(s.storeMerchants.merchantId, createdMerchantIds));
+  }
   await app.close();
   await pool.end();
 });

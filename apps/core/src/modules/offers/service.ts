@@ -1,9 +1,10 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import { AppError, badRequest, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { requireMembership } from '../merchants/index.js';
 import { audit, recordEvent } from '../platform/index.js';
+import { recordMovement } from './inventory.js';
 
 export type OfferInput = {
   variantId: string;
@@ -66,20 +67,32 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
       throw badRequest('UNSUPPORTED_CURRENCY', 'Every price currency must be enabled in the store');
     }
 
-    const [offer] = await tx
-      .insert(s.offers)
-      .values({
-        storeId: variant.storeId,
-        variantId: variant.id,
+    const [existing] = await tx
+      .select()
+      .from(s.offers)
+      .where(and(eq(s.offers.variantId, variant.id), eq(s.offers.merchantId, merchantId)))
+      .for('update');
+    const [offer] = existing
+      ? await tx
+          .update(s.offers)
+          .set({ stockQuantity: input.stockQuantity, status: input.status })
+          .where(eq(s.offers.id, existing.id))
+          .returning()
+      : await tx
+          .insert(s.offers)
+          .values({ storeId: variant.storeId, variantId: variant.id, merchantId, stockQuantity: input.stockQuantity, status: input.status })
+          .returning();
+    const delta = input.stockQuantity - (existing?.stockQuantity ?? 0);
+    if (!existing || delta !== 0) {
+      await recordMovement(tx, {
+        offerId: offer!.id,
         merchantId,
-        stockQuantity: input.stockQuantity,
-        status: input.status,
-      })
-      .onConflictDoUpdate({
-        target: [s.offers.variantId, s.offers.merchantId],
-        set: { stockQuantity: input.stockQuantity, status: input.status, updatedAt: new Date() },
-      })
-      .returning();
+        delta,
+        quantityAfter: offer!.stockQuantity,
+        reason: existing ? 'correction' : 'initial',
+        actorUserId: actor.userId,
+      });
+    }
 
     await tx.delete(s.offerPrices).where(eq(s.offerPrices.offerId, offer!.id));
     const prices = await tx
@@ -110,19 +123,42 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
   });
 }
 
+/** The merchant's offers with what they are for (product name, SKU, store) and their prices. */
 export async function listMerchantOffers(db: Database, userId: string, merchantId: string) {
   await requireMembership(db, merchantId, userId);
-  const offers = await db.select().from(s.offers).where(eq(s.offers.merchantId, merchantId));
-  const prices = offers.length
-    ? await db
-        .select()
-        .from(s.offerPrices)
-        .where(
-          inArray(
-            s.offerPrices.offerId,
-            offers.map((o) => o.id),
-          ),
-        )
-    : [];
-  return offers.map((o) => serializeOffer(o, prices.filter((p) => p.offerId === o.id)));
+  const rows = await db
+    .select({
+      offer: s.offers,
+      sku: s.productVariants.sku,
+      options: s.productVariants.options,
+      productId: s.products.id,
+      productSlug: s.products.slug,
+      storeSlug: s.stores.slug,
+      storeDefaultLocale: s.stores.defaultLocale,
+    })
+    .from(s.offers)
+    .innerJoin(s.productVariants, eq(s.productVariants.id, s.offers.variantId))
+    .innerJoin(s.products, eq(s.products.id, s.productVariants.productId))
+    .innerJoin(s.stores, eq(s.stores.id, s.offers.storeId))
+    .where(eq(s.offers.merchantId, merchantId))
+    .orderBy(asc(s.products.slug), asc(s.productVariants.position));
+  if (rows.length === 0) return [];
+  const [prices, names] = await Promise.all([
+    db.select().from(s.offerPrices).where(inArray(s.offerPrices.offerId, rows.map((r) => r.offer.id))),
+    db
+      .select()
+      .from(s.productTranslations)
+      .where(inArray(s.productTranslations.productId, rows.map((r) => r.productId))),
+  ]);
+  return rows.map((r) => ({
+    ...serializeOffer(r.offer, prices.filter((p) => p.offerId === r.offer.id)),
+    sku: r.sku,
+    options: r.options,
+    product: {
+      id: r.productId,
+      slug: r.productSlug,
+      names: Object.fromEntries(names.filter((n) => n.productId === r.productId).map((n) => [n.locale, n.name])),
+    },
+    storeSlug: r.storeSlug,
+  }));
 }

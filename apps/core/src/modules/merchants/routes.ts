@@ -8,6 +8,7 @@ import { getMerchantFile, setAddress, setBusinessProfile, setIdentity, setPayout
 import {
   createMerchant,
   getMerchant,
+  listMerchantStores,
   listMyMerchants,
   listStaff,
   removeStaffMember,
@@ -35,6 +36,12 @@ export async function merchantRoutes(app: FastifyInstance) {
     const merchantId = merchantIdOf(req);
     await requireMembership(app.db, merchantId, authOf(req).userId);
     return { data: await getMerchant(app.db, merchantId) };
+  });
+
+  app.get('/v1/merchants/:merchantId/stores', auth, async (req) => {
+    const merchantId = merchantIdOf(req);
+    await requireMembership(app.db, merchantId, authOf(req).userId);
+    return { data: await listMerchantStores(app.db, merchantId) };
   });
 
   app.patch('/v1/merchants/:merchantId', auth, async (req) => ({

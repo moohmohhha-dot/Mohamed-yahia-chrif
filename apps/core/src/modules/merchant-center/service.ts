@@ -1,0 +1,92 @@
+/**
+ * Merchant Center read model: one call that summarizes a merchant's state for its dashboard.
+ * It only reads; every change goes through the owning module (merchants, catalog, offers).
+ */
+import { and, count, desc, eq, sql } from 'drizzle-orm';
+import { schema as s, type Database } from '@aruma/db';
+import { requireMembership } from '../merchants/index.js';
+
+export const LOW_STOCK_THRESHOLD = 5;
+
+/** Sections whose module is not built yet; the Merchant Center shows them as upcoming. */
+export const UPCOMING_SECTIONS = {
+  orders: 1,
+  sales: 1,
+  customers: 1,
+  coupons: 2,
+  promotions: 2,
+  ads: 3,
+  analytics: 2,
+  reviews: 2,
+  messages: 2,
+  support: 2,
+  balance: 2,
+  settlements: 2,
+  payouts: 2,
+} as const;
+
+export async function getDashboard(db: Database, userId: string, merchantId: string) {
+  const role = await requireMembership(db, merchantId, userId);
+  const [merchant] = await db.select().from(s.merchants).where(eq(s.merchants.id, merchantId));
+
+  const [checks, stores, productsByStatus, offerStats, recentMovements] = await Promise.all([
+    db
+      .select({ kind: s.merchantVerifications.kind, status: s.merchantVerifications.status })
+      .from(s.merchantVerifications)
+      .where(eq(s.merchantVerifications.merchantId, merchantId)),
+    db
+      .select({ storeSlug: s.stores.slug, storeName: s.stores.name, commissionBps: s.storeMerchants.commissionBps })
+      .from(s.storeMerchants)
+      .innerJoin(s.stores, eq(s.stores.id, s.storeMerchants.storeId))
+      .where(and(eq(s.storeMerchants.merchantId, merchantId), eq(s.storeMerchants.status, 'active'))),
+    db
+      .select({ status: s.products.status, n: count() })
+      .from(s.products)
+      .where(eq(s.products.createdByMerchantId, merchantId))
+      .groupBy(s.products.status),
+    db
+      .select({
+        active: sql<number>`count(*) filter (where ${s.offers.status} = 'active')`.mapWith(Number),
+        archived: sql<number>`count(*) filter (where ${s.offers.status} = 'archived')`.mapWith(Number),
+        outOfStock: sql<number>`count(*) filter (where ${s.offers.status} = 'active' and ${s.offers.stockQuantity} = 0)`.mapWith(Number),
+        lowStock: sql<number>`count(*) filter (where ${s.offers.status} = 'active' and ${s.offers.stockQuantity} between 1 and ${LOW_STOCK_THRESHOLD})`.mapWith(Number),
+        units: sql<number>`coalesce(sum(${s.offers.stockQuantity}) filter (where ${s.offers.status} = 'active'), 0)`.mapWith(Number),
+      })
+      .from(s.offers)
+      .where(eq(s.offers.merchantId, merchantId)),
+    db
+      .select({
+        id: s.inventoryMovements.id,
+        sku: s.productVariants.sku,
+        delta: s.inventoryMovements.delta,
+        quantityAfter: s.inventoryMovements.quantityAfter,
+        reason: s.inventoryMovements.reason,
+        createdAt: s.inventoryMovements.createdAt,
+      })
+      .from(s.inventoryMovements)
+      .innerJoin(s.offers, eq(s.offers.id, s.inventoryMovements.offerId))
+      .innerJoin(s.productVariants, eq(s.productVariants.id, s.offers.variantId))
+      .where(eq(s.inventoryMovements.merchantId, merchantId))
+      .orderBy(desc(s.inventoryMovements.createdAt))
+      .limit(5),
+  ]);
+
+  return {
+    merchant: {
+      id: merchant!.id,
+      name: merchant!.name,
+      type: merchant!.type,
+      status: merchant!.status,
+      verificationStatus: merchant!.verificationStatus,
+      canSell: merchant!.verificationStatus === 'verified' && merchant!.status === 'active',
+    },
+    myRole: role,
+    checks,
+    stores,
+    products: Object.fromEntries(productsByStatus.map((p) => [p.status, p.n])),
+    offers: offerStats[0],
+    lowStockThreshold: LOW_STOCK_THRESHOLD,
+    recentMovements,
+    upcomingSections: UPCOMING_SECTIONS,
+  };
+}
