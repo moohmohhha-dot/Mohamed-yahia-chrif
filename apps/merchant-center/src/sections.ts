@@ -13,7 +13,7 @@ export type SectionId =
 export const NAV: { group: MessageKey; sections: { id: SectionId; phase?: number }[] }[] = [
   { group: 'group.overview', sections: [{ id: 'dashboard' }] },
   { group: 'group.catalog', sections: [{ id: 'products' }, { id: 'variants' }, { id: 'offers' }, { id: 'inventory' }] },
-  { group: 'group.sales', sections: [{ id: 'orders', phase: 1 }, { id: 'sales', phase: 1 }, { id: 'customers', phase: 1 }] },
+  { group: 'group.sales', sections: [{ id: 'orders' }, { id: 'sales', phase: 1 }, { id: 'customers', phase: 1 }] },
   { group: 'group.marketing', sections: [{ id: 'coupons', phase: 2 }, { id: 'promotions', phase: 2 }, { id: 'ads', phase: 3 }] },
   { group: 'group.insights', sections: [{ id: 'analytics', phase: 2 }, { id: 'reviews', phase: 2 }] },
   { group: 'group.communication', sections: [{ id: 'messages', phase: 2 }, { id: 'support', phase: 2 }] },

@@ -8,6 +8,7 @@
 - نظام التجار والتحقق: [docs/MERCHANTS.md](docs/MERCHANTS.md)
 - مركز التاجر: [docs/MERCHANT_CENTER.md](docs/MERCHANT_CENTER.md)
 - المخزون: [docs/INVENTORY.md](docs/INVENTORY.md)
+- الطلبات: [docs/ORDERS.md](docs/ORDERS.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)

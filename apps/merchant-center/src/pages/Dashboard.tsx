@@ -5,6 +5,7 @@ import { useI18n, type MessageKey } from '../i18n';
 import { useMerchant } from '../merchant-context';
 
 type Dashboard = {
+  orders: Record<string, number>;
   merchant: { canSell: boolean; verificationStatus: string };
   checks: { kind: string; status: string }[];
   stores: { storeSlug: string; storeName: string; commissionBps: number }[];
@@ -29,6 +30,8 @@ export function DashboardPage() {
         {!data.merchant.canSell && <Link to={`/m/${merchant.id}/verification`}>{t('dash.verifyCta')}</Link>}
       </div>
       <div className="grid" style={{ marginBottom: 16 }}>
+        <Stat label={t('dash.newOrders')} value={data.orders.new ?? 0} />
+        <Stat label={t('dash.toShip')} value={(data.orders.processing ?? 0) + (data.orders.preparing ?? 0)} />
         <Stat label={t('dash.products')} value={productTotal} />
         <Stat label={t('dash.activeOffers')} value={data.offers.active} />
         <Stat label={t('dash.outOfStock')} value={data.offers.outOfStock} />

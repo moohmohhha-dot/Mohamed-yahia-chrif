@@ -139,7 +139,7 @@ try {
   check((await page.locator('.nav-link').count()) === 20, 'all 20 Merchant Center sections are in the menu');
   await page.screenshot({ path: join(shots, '1-dashboard-ar.png'), fullPage: true });
 
-  await page.locator('.nav-link', { hasText: 'الطلبات' }).click();
+  await page.locator('.nav-link', { hasText: 'المبيعات' }).click();
   await page.getByText('يأتي في المرحلة 1').waitFor();
   check(true, 'upcoming sections say when they arrive');
   await page.locator('.nav-link', { hasText: 'الرصيد' }).click();
@@ -284,6 +284,41 @@ try {
   await page.locator('.nav-link', { hasText: 'Settings' }).click();
   await page.getByTestId('commission-mb-parfum').getByText('12 %').waitFor();
   check((await page.getByTestId('commission-mb-parfum').locator('input').count()) === 0, 'ARUMA commission is shown read-only');
+
+  console.log('Orders (English)');
+  const shopper = await call('POST', '/v1/auth/register', null, { email: `shopper-${run}@example.com`, password: 'a strong password', displayName: 'Yacine' });
+  const offerRow = (await call('GET', `/v1/merchants/${merchantId}/offers`, owner.token))[0];
+  const placed = await fetch(`${API}/v1/stores/mb-parfum/orders`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${shopper.token}`, 'idempotency-key': `e2e-${run}-order` },
+    body: JSON.stringify({
+      lines: [{ offerId: offerRow.id, quantity: 2 }],
+      paymentMethod: 'cash_on_delivery',
+      shippingAddress: { fullName: 'Yacine Meziane', phone: '+213661234567', line1: '5 rue Larbi Ben Mhidi', city: 'Oran', region: 'Oran', country: 'DZ' },
+    }),
+  }).then((r) => r.json());
+  const number = placed.data.orders[0].number;
+
+  await page.locator('.nav-link', { hasText: 'Orders' }).click();
+  await page.getByRole('button', { name: number }).click();
+  await page.getByRole('heading', { name: number }).waitFor();
+  await page.getByRole('button', { name: 'Confirm order' }).click();
+  await page.getByRole('button', { name: 'Start preparing' }).click();
+  await page.getByRole('button', { name: 'Hand to carrier' }).click();
+  await page.getByLabel('Note (e.g. tracking number)').fill('Yalidine 4512');
+  await page.getByRole('button', { name: 'Confirm · Hand to carrier' }).click();
+  await page.getByRole('button', { name: 'Mark delivered' }).click();
+  await page.getByRole('button', { name: 'Record a return' }).click();
+  await page.getByLabel('Reason (required)').fill('Refusé à la livraison');
+  await page.getByRole('button', { name: 'Confirm · Record a return' }).click();
+  await page.getByTestId('order-history').locator('tbody tr').nth(5).waitFor();
+  const rows = await page.getByTestId('order-history').locator('tbody tr').count();
+  check(rows === 6, 'order moved new → processing → preparing → shipping → delivered → returned, all recorded');
+  check((await page.getByRole('button', { name: 'Refund' }).count()) === 0, 'merchant has no refund button');
+  await page.getByText('Refusé à la livraison').waitFor();
+  await page.getByText('Yalidine 4512').waitFor();
+  check(true, 'history shows the reason and the tracking note');
+  await page.screenshot({ path: join(shots, '5-order-en.png'), fullPage: true });
 
   await page.getByLabel('Language').first().selectOption('ar');
   await page.locator('.nav-link', { hasText: 'لوحة القيادة' }).click();
