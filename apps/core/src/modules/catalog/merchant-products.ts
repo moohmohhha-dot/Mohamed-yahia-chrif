@@ -238,7 +238,7 @@ async function describeProducts(db: Executor, products: (typeof s.products.$infe
       .innerJoin(s.categories, eq(s.categories.id, s.productCategories.categoryId))
       .where(inArray(s.productCategories.productId, ids)),
     db
-      .select({ id: s.offers.id, variantId: s.offers.variantId, status: s.offers.status, stock: s.offers.stockQuantity })
+      .select({ id: s.offers.id, variantId: s.offers.variantId, status: s.offers.status, stock: s.offers.availableQuantity })
       .from(s.offers)
       .innerJoin(s.productVariants, eq(s.productVariants.id, s.offers.variantId))
       .where(and(eq(s.offers.merchantId, merchantId), inArray(s.productVariants.productId, ids))),

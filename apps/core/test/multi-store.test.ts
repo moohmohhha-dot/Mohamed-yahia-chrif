@@ -26,13 +26,16 @@ beforeAll(async () => {
   const [variant] = await db.insert(s.productVariants).values({ productId: product!.id, sku: 'CREME-OUD' }).returning();
   const [offer] = await db
     .insert(s.offers)
-    .values({ storeId: store!.id, variantId: variant!.id, merchantId: merchant!.id, stockQuantity: 5 })
+    .values({ storeId: store!.id, variantId: variant!.id, merchantId: merchant!.id, sku: 'CREME-OUD' })
     .returning();
+  const [location] = await db.select().from(s.inventoryLocations).where(eq(s.inventoryLocations.merchantId, merchant!.id));
+  await db.insert(s.inventoryLevels).values({ offerId: offer!.id, locationId: location!.id, onHand: 5 });
   await db.insert(s.offerPrices).values({ offerId: offer!.id, currency: 'DZD', amountMinor: 250000n });
 });
 
 afterAll(async () => {
-  await db.delete(s.stores).where(eq(s.stores.slug, 'mb-beauty'));
+  // Stock records cannot be deleted, so the test store is archived instead.
+  await db.update(s.stores).set({ status: 'archived' }).where(eq(s.stores.slug, 'mb-beauty'));
   await app.close();
   await pool.end();
 });

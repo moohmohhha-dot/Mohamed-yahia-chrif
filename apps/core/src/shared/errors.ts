@@ -3,6 +3,8 @@ export class AppError extends Error {
     public readonly statusCode: number,
     public readonly code: string,
     message: string,
+    /** Extra machine-readable information returned to the client (e.g. which rows failed). */
+    public readonly details?: unknown,
   ) {
     super(message);
   }

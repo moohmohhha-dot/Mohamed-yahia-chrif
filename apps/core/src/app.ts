@@ -46,7 +46,8 @@ export function buildApp(
 
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof AppError) {
-      return reply.status(error.statusCode).send({ error: { code: error.code, message: error.message } });
+      const body = { code: error.code, message: error.message, ...(error.details ? { details: error.details } : {}) };
+      return reply.status(error.statusCode).send({ error: body });
     }
     if (error instanceof ZodError) {
       return reply

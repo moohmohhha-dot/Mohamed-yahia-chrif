@@ -9,8 +9,7 @@ type Dashboard = {
   checks: { kind: string; status: string }[];
   stores: { storeSlug: string; storeName: string; commissionBps: number }[];
   products: Record<string, number>;
-  offers: { active: number; archived: number; outOfStock: number; lowStock: number; units: number };
-  lowStockThreshold: number;
+  offers: { active: number; archived: number; outOfStock: number; lowStock: number; units: number; reserved: number; available: number };
   recentMovements: { id: string; sku: string; delta: number; quantityAfter: number; reason: string; createdAt: string }[];
 };
 
@@ -33,8 +32,10 @@ export function DashboardPage() {
         <Stat label={t('dash.products')} value={productTotal} />
         <Stat label={t('dash.activeOffers')} value={data.offers.active} />
         <Stat label={t('dash.outOfStock')} value={data.offers.outOfStock} />
-        <Stat label={t('dash.lowStock', { n: data.lowStockThreshold })} value={data.offers.lowStock} />
+        <Stat label={t('dash.lowStock')} value={data.offers.lowStock} />
         <Stat label={t('dash.units')} value={data.offers.units} />
+        <Stat label={t('dash.reserved')} value={data.offers.reserved} />
+        <Stat label={t('dash.available')} value={data.offers.available} />
       </div>
       <Card title={t('section.verification')}>
         <div className="row">

@@ -52,7 +52,7 @@ export function OffersPage() {
                 <th>{t('products.sku')}</th>
                 <th>{t('products.store')}</th>
                 <th className="num">{t('offers.prices')}</th>
-                <th className="num">{t('offers.stock')}</th>
+                <th className="num">{t('inventory.available')}</th>
                 <th>{t('common.status')}</th>
                 <th />
               </tr>
@@ -70,7 +70,7 @@ export function OffersPage() {
                       <div key={p.currency}>{money.format(p.amountMinor, p.currency, locale)}</div>
                     ))}
                   </td>
-                  <td className="num">{o.stockQuantity}</td>
+                  <td className="num">{o.availableQuantity}</td>
                   <td>
                     <StatusBadge status={o.status} />
                   </td>
@@ -146,7 +146,7 @@ function OfferForm({
   const merchant = useMerchant();
   const [store, setStore] = useState<StoreInfo | null>(null);
   const [prices, setPrices] = useState<Record<string, { amount: string; compareAt: string }>>({});
-  const [stock, setStock] = useState(String(offer?.stockQuantity ?? 0));
+  const [stock, setStock] = useState('0');
   const [status, setStatus] = useState(offer?.status ?? 'active');
   const action = useAction();
 
@@ -175,7 +175,8 @@ function OfferForm({
     if (!store) return;
     const body = {
       variantId,
-      stockQuantity: Number(stock),
+      // Opening stock only when the offer is created; afterwards stock is managed in Inventory.
+      ...(offer ? {} : { stockQuantity: Number(stock) }),
       status,
       prices: store.currencies
         .filter((c) => prices[c.code]?.amount)
@@ -225,9 +226,17 @@ function OfferForm({
             ))}
           </div>
           <div className="form-grid">
-            <Field label={t('offers.stock')}>
-              <input required type="number" min={0} step={1} value={stock} onChange={(e) => setStock(e.target.value)} dir="ltr" />
-            </Field>
+            {offer ? (
+              <Field label={t('inventory.available')}>
+                <span>
+                  <strong>{offer.availableQuantity}</strong> <span className="muted small">{t('offers.stockManaged')}</span>
+                </span>
+              </Field>
+            ) : (
+              <Field label={t('offers.stockInitial')}>
+                <input required type="number" min={0} step={1} value={stock} onChange={(e) => setStock(e.target.value)} dir="ltr" />
+              </Field>
+            )}
             <Field label={t('common.status')}>
               <select value={status} onChange={(e) => setStatus(e.target.value as 'active' | 'archived')}>
                 <option value="active">{t('status.active')}</option>

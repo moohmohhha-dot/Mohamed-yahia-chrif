@@ -6,8 +6,6 @@ import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import { requireMembership } from '../merchants/index.js';
 
-export const LOW_STOCK_THRESHOLD = 5;
-
 /** Sections whose module is not built yet; the Merchant Center shows them as upcoming. */
 export const UPCOMING_SECTIONS = {
   orders: 1,
@@ -48,9 +46,11 @@ export async function getDashboard(db: Database, userId: string, merchantId: str
       .select({
         active: sql<number>`count(*) filter (where ${s.offers.status} = 'active')`.mapWith(Number),
         archived: sql<number>`count(*) filter (where ${s.offers.status} = 'archived')`.mapWith(Number),
-        outOfStock: sql<number>`count(*) filter (where ${s.offers.status} = 'active' and ${s.offers.stockQuantity} = 0)`.mapWith(Number),
-        lowStock: sql<number>`count(*) filter (where ${s.offers.status} = 'active' and ${s.offers.stockQuantity} between 1 and ${LOW_STOCK_THRESHOLD})`.mapWith(Number),
-        units: sql<number>`coalesce(sum(${s.offers.stockQuantity}) filter (where ${s.offers.status} = 'active'), 0)`.mapWith(Number),
+        outOfStock: sql<number>`count(*) filter (where ${s.offers.status} = 'active' and ${s.offers.availableQuantity} = 0)`.mapWith(Number),
+        lowStock: sql<number>`count(*) filter (where ${s.offers.status} = 'active' and ${s.offers.availableQuantity} > 0 and ${s.offers.availableQuantity} <= ${s.offers.lowStockThreshold})`.mapWith(Number),
+        units: sql<number>`coalesce(sum(${s.offers.onHandQuantity}) filter (where ${s.offers.status} = 'active'), 0)`.mapWith(Number),
+        reserved: sql<number>`coalesce(sum(${s.offers.reservedQuantity}) filter (where ${s.offers.status} = 'active'), 0)`.mapWith(Number),
+        available: sql<number>`coalesce(sum(${s.offers.availableQuantity}) filter (where ${s.offers.status} = 'active'), 0)`.mapWith(Number),
       })
       .from(s.offers)
       .where(eq(s.offers.merchantId, merchantId)),
@@ -85,7 +85,6 @@ export async function getDashboard(db: Database, userId: string, merchantId: str
     stores,
     products: Object.fromEntries(productsByStatus.map((p) => [p.status, p.n])),
     offers: offerStats[0],
-    lowStockThreshold: LOW_STOCK_THRESHOLD,
     recentMovements,
     upcomingSections: UPCOMING_SECTIONS,
   };

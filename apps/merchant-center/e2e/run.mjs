@@ -9,7 +9,7 @@
  */
 import { spawn, execSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
-import { mkdirSync, mkdtempSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -237,20 +237,45 @@ try {
   await page.getByPlaceholder('Search').fill('Desert');
   await page.locator('tr', { hasText: `AMB-${run}-50`.toUpperCase() }).getByRole('button', { name: 'Add' }).click();
   await page.getByLabel('Price (DZD)', { exact: true }).fill('7200');
-  await page.getByLabel('Stock', { exact: true }).fill('6');
+  await page.getByLabel('Opening stock (default warehouse)').fill('6');
   await page.getByRole('button', { name: 'Save' }).click();
   await page.locator('tr', { hasText: `AMB-${run}-50`.toUpperCase() }).getByText('Active').waitFor();
   check(true, 'offer created with a DZD price and stock');
 
+  const sku = `AMB-${run}-50`.toUpperCase();
+  const stock = page.getByTestId(`stock-${sku}`);
   await page.locator('.nav-link', { hasText: 'Inventory' }).click();
-  await page.getByRole('button', { name: 'Adjust stock' }).click();
-  await page.getByLabel('Change (+ to add, − to remove)').fill('5');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await page.getByTestId(`stock-${`AMB-${run}-50`.toUpperCase()}`).getByText('In stock: 11').waitFor();
-  await page.getByLabel('Change (+ to add, − to remove)').fill('-50');
-  await page.getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Not enough stock for this change.').waitFor();
+  await page.getByLabel('Code').fill('ORAN');
+  await page.getByLabel('Name', { exact: true }).fill('Dépôt Oran');
+  await page.getByRole('button', { name: 'Add a warehouse' }).click();
+  await page.locator('tr', { hasText: 'Dépôt Oran' }).waitFor();
+  check(true, 'second warehouse created');
+
+  const card = page.locator('.card', { has: stock });
+  await card.getByRole('button', { name: 'Edit' }).click();
+  await card.getByLabel('Change (+ to add, − to remove)').fill('5');
+  await card.locator('form').first().getByRole('button', { name: 'Save' }).click();
+  await stock.filter({ hasText: 'Available: 11' }).waitFor();
+  await card.getByLabel('Change (+ to add, − to remove)').fill('-50');
+  await card.locator('form').first().getByRole('button', { name: 'Save' }).click();
+  await card.getByText('Not enough stock for this change.').waitFor();
   check(true, 'stock adjusted with history; cannot go below zero');
+
+  await card.getByLabel('To', { exact: true }).selectOption({ label: 'ORAN · Dépôt Oran' });
+  await card.getByLabel('Quantity', { exact: true }).fill('4');
+  await card.getByRole('button', { name: 'Transfer' }).click();
+  await card.locator('tr', { hasText: 'ORAN' }).filter({ hasText: '4' }).first().waitFor();
+  await stock.filter({ hasText: 'Available: 11' }).waitFor();
+  check(true, 'stock transferred between warehouses, total unchanged');
+
+  const csvPath = join(mkdtempSync(join(tmpdir(), 'aruma-csv-')), 'stock.csv');
+  writeFileSync(csvPath, `sku;quantity;location\n${sku};10;ORAN\n`);
+  await page.getByLabel('Import CSV / Excel').setInputFiles(csvPath);
+  await page.getByRole('button', { name: 'Check file' }).click();
+  await page.getByRole('button', { name: 'Import 1 rows' }).click();
+  await page.getByText('Import saved.').waitFor();
+  await stock.filter({ hasText: 'Available: 17' }).waitFor();
+  check(true, 'CSV import checked first, then applied');
   await page.screenshot({ path: join(shots, '3-inventory-en.png'), fullPage: true });
 
   const storefront = await (await fetch(`${API}/v1/stores/mb-parfum/products/ambre-${run}?locale=fr`)).json();

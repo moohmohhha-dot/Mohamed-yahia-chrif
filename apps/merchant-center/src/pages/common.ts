@@ -6,7 +6,9 @@ export type Offer = {
   id: string;
   variantId: string;
   status: 'active' | 'archived';
-  stockQuantity: number;
+  onHandQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
   sku: string;
   options: Record<string, unknown>;
   storeSlug: string;

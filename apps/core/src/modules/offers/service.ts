@@ -1,14 +1,18 @@
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
-import { AppError, badRequest, notFound } from '../../shared/errors.js';
+import { AppError, badRequest, conflict, isUniqueViolation, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { requireMembership } from '../merchants/index.js';
 import { audit, recordEvent } from '../platform/index.js';
-import { recordMovement } from './inventory.js';
+import { ensureDefaultLocation, setOnHand } from '../inventory/index.js';
 
 export type OfferInput = {
   variantId: string;
-  stockQuantity: number;
+  /** Merchant SKU; defaults to the variant SKU when the offer is created. */
+  sku?: string;
+  /** On-hand stock at the merchant's default location (a stock count). Omit to leave stock unchanged. */
+  stockQuantity?: number;
+  lowStockThreshold?: number | null;
   status: 'active' | 'archived';
   prices: { currency: string; amountMinor: number; compareAtMinor?: number }[];
 };
@@ -32,7 +36,8 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
   const currencies = input.prices.map((p) => p.currency);
   if (new Set(currencies).size !== currencies.length) throw badRequest('DUPLICATE_CURRENCY', 'One price per currency');
 
-  return db.transaction(async (tx) => {
+  try {
+    return await db.transaction(async (tx) => {
     await requireMembership(tx, merchantId, actor.userId);
 
     const [merchant] = await tx.select().from(s.merchants).where(eq(s.merchants.id, merchantId));
@@ -41,7 +46,7 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
     }
 
     const [variant] = await tx
-      .select({ id: s.productVariants.id, storeId: s.products.storeId })
+      .select({ id: s.productVariants.id, sku: s.productVariants.sku, storeId: s.products.storeId })
       .from(s.productVariants)
       .innerJoin(s.products, eq(s.products.id, s.productVariants.productId))
       .where(eq(s.productVariants.id, input.variantId));
@@ -72,27 +77,28 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
       .from(s.offers)
       .where(and(eq(s.offers.variantId, variant.id), eq(s.offers.merchantId, merchantId)))
       .for('update');
-    const [offer] = existing
-      ? await tx
-          .update(s.offers)
-          .set({ stockQuantity: input.stockQuantity, status: input.status })
-          .where(eq(s.offers.id, existing.id))
-          .returning()
+    const fields = {
+      status: input.status,
+      ...(input.sku ? { sku: input.sku } : {}),
+      ...(input.lowStockThreshold !== undefined ? { lowStockThreshold: input.lowStockThreshold } : {}),
+    };
+    const [saved] = existing
+      ? await tx.update(s.offers).set(fields).where(eq(s.offers.id, existing.id)).returning()
       : await tx
           .insert(s.offers)
-          .values({ storeId: variant.storeId, variantId: variant.id, merchantId, stockQuantity: input.stockQuantity, status: input.status })
+          .values({ storeId: variant.storeId, variantId: variant.id, merchantId, sku: variant.sku, ...fields })
           .returning();
-    const delta = input.stockQuantity - (existing?.stockQuantity ?? 0);
-    if (!existing || delta !== 0) {
-      await recordMovement(tx, {
-        offerId: offer!.id,
+
+    // Stock lives in the inventory module: the given quantity becomes on-hand at the default location.
+    if (!existing || input.stockQuantity !== undefined) {
+      const location = await ensureDefaultLocation(tx, merchantId);
+      await setOnHand(tx, saved!.id, location.id, input.stockQuantity ?? 0, {
         merchantId,
-        delta,
-        quantityAfter: offer!.stockQuantity,
         reason: existing ? 'correction' : 'initial',
         actorUserId: actor.userId,
       });
     }
+    const [offer] = await tx.select().from(s.offers).where(eq(s.offers.id, saved!.id));
 
     await tx.delete(s.offerPrices).where(eq(s.offerPrices.offerId, offer!.id));
     const prices = await tx
@@ -111,7 +117,7 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
       action: 'offers.offer.upserted',
       entityType: 'offer',
       entityId: offer!.id,
-      metadata: { stockQuantity: input.stockQuantity, status: input.status, prices: input.prices },
+      metadata: { sku: offer!.sku, stockQuantity: input.stockQuantity ?? null, status: input.status, prices: input.prices },
     });
     await recordEvent(tx, {
       type: 'offers.offer.upserted',
@@ -121,6 +127,10 @@ export async function upsertOffer(db: Database, actor: Actor & { userId: string 
     });
     return serializeOffer(offer!, prices);
   });
+  } catch (error) {
+    if (isUniqueViolation(error)) throw conflict('SKU_TAKEN', 'You already use this SKU for another offer; choose another one');
+    throw error;
+  }
 }
 
 /** The merchant's offers with what they are for (product name, SKU, store) and their prices. */

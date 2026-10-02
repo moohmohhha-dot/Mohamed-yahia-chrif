@@ -5,4 +5,5 @@ export * from './identity.js';
 export * from './merchants.js';
 export * from './catalog.js';
 export * from './offers.js';
+export * from './inventory.js';
 export * from './platform.js';

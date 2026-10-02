@@ -151,9 +151,9 @@ describe('offers and inventory', () => {
   });
 
   it('adjusts stock with a reason and keeps a history', async () => {
-    const url = `${base()}/offers/${offerId}/inventory`;
-    expect((await call('POST', url, staff.token, { delta: 10, reason: 'restock', note: 'Arrivage' })).json().data.stockQuantity).toBe(14);
-    expect((await call('POST', url, staff.token, { delta: -2, reason: 'damaged' })).json().data.stockQuantity).toBe(12);
+    const url = `${base()}/inventory/offers/${offerId}/adjust`;
+    expect((await call('POST', url, staff.token, { delta: 10, reason: 'restock', note: 'Arrivage' })).json().data.totals.available).toBe(14);
+    expect((await call('POST', url, staff.token, { delta: -2, reason: 'damaged' })).json().data.totals.available).toBe(12);
     const tooMany = await call('POST', url, staff.token, { delta: -100, reason: 'correction' });
     expect(tooMany.json().error.code).toBe('INSUFFICIENT_STOCK');
     // 'sale' movements belong to the orders module, never to manual edits.
@@ -161,7 +161,7 @@ describe('offers and inventory', () => {
 
     // Setting stock through the offer form is recorded as a correction.
     await call('PUT', `${base()}/offers`, owner.token, { variantId, stockQuantity: 20, prices: [{ currency: 'DZD', amountMinor: 450000 }] });
-    const history = (await call('GET', url, staff.token)).json().data;
+    const history = (await call('GET', `${base()}/inventory/offers/${offerId}/history`, staff.token)).json().data;
     expect(history.map((h: { reason: string; delta: number; quantityAfter: number }) => [h.reason, h.delta, h.quantityAfter])).toEqual([
       ['correction', 8, 20],
       ['damaged', -2, 12],
@@ -176,7 +176,7 @@ describe('offers and inventory', () => {
     expect(d.myRole).toBe('staff');
     expect(d.stores).toEqual([{ storeSlug: 'mb-parfum', storeName: 'MB Parfum', commissionBps: 1500 }]);
     expect(d.products).toEqual({ active: 1 });
-    expect(d.offers).toMatchObject({ active: 1, outOfStock: 0, units: 20 });
+    expect(d.offers).toMatchObject({ active: 1, outOfStock: 0, units: 20, reserved: 0, available: 20 });
     expect(d.recentMovements[0]).toMatchObject({ sku: 'MUSC-NUIT-50', reason: 'correction' });
     expect(d.upcomingSections.orders).toBe(1);
   });

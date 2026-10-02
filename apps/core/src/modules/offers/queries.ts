@@ -6,7 +6,8 @@ export type SellableOffer = {
   offerId: string;
   variantId: string;
   merchant: { slug: string; name: string };
-  stockQuantity: number;
+  /** Units a customer can still buy (on hand minus reserved, all locations). */
+  available: number;
   amountMinor: bigint;
   compareAtMinor: bigint | null;
 };
@@ -28,7 +29,7 @@ export async function loadSellableOffers(
       variantId: s.offers.variantId,
       merchantSlug: s.merchants.slug,
       merchantName: s.merchants.name,
-      stockQuantity: s.offers.stockQuantity,
+      available: s.offers.availableQuantity,
       amountMinor: s.offerPrices.amountMinor,
       compareAtMinor: s.offerPrices.compareAtMinor,
     })
@@ -56,5 +57,5 @@ export async function loadSellableOffers(
 export function pickBestOffer(offers: SellableOffer[]): SellableOffer | undefined {
   const cheapest = (list: SellableOffer[]) =>
     list.reduce<SellableOffer | undefined>((best, o) => (!best || o.amountMinor < best.amountMinor ? o : best), undefined);
-  return cheapest(offers.filter((o) => o.stockQuantity > 0)) ?? cheapest(offers);
+  return cheapest(offers.filter((o) => o.available > 0)) ?? cheapest(offers);
 }

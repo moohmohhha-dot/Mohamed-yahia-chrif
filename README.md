@@ -7,6 +7,7 @@
 - ARUMA CORE وخريطة كل الخدمات المشتركة: [docs/CORE.md](docs/CORE.md)
 - نظام التجار والتحقق: [docs/MERCHANTS.md](docs/MERCHANTS.md)
 - مركز التاجر: [docs/MERCHANT_CENTER.md](docs/MERCHANT_CENTER.md)
+- المخزون: [docs/INVENTORY.md](docs/INVENTORY.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)

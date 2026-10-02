@@ -156,6 +156,11 @@ export async function seed(db: Database): Promise<void> {
     await tx.insert(s.storeCurrencies).values(['DZD', 'EUR', 'USD'].map((currency) => ({ storeId: store.id, currency })));
     await tx.insert(s.storeCountries).values([{ storeId: store.id, country: 'DZ' }]);
     await tx.insert(s.storeMerchants).values({ storeId: store.id, merchantId: merchant.id });
+    const [location] = await tx
+      .insert(s.inventoryLocations)
+      .values({ merchantId: merchant.id, code: 'MAIN', name: 'Entrepôt principal', country: 'DZ', isDefault: true })
+      .returning();
+    if (!location) throw new Error('Failed to create location');
 
     const [brand] = await tx
       .insert(s.brands)
@@ -214,9 +219,20 @@ export async function seed(db: Database): Promise<void> {
         if (!variant) throw new Error('Failed to create variant');
         const [offer] = await tx
           .insert(s.offers)
-          .values({ storeId: store.id, variantId: variant.id, merchantId: merchant.id, stockQuantity: v.stock })
+          .values({ storeId: store.id, variantId: variant.id, merchantId: merchant.id, sku: variant.sku })
           .returning();
         if (!offer) throw new Error('Failed to create offer');
+        // Opening stock at the main warehouse; offer totals are filled in by the database trigger.
+        await tx.insert(s.inventoryLevels).values({ offerId: offer.id, locationId: location.id, onHand: v.stock });
+        await tx.insert(s.inventoryMovements).values({
+          offerId: offer.id,
+          merchantId: merchant.id,
+          locationId: location.id,
+          delta: v.stock,
+          quantityAfter: v.stock,
+          reason: 'initial',
+          note: 'Seed data',
+        });
         await tx.insert(s.offerPrices).values(
           Object.entries(v.prices).map(([currency, amount]) => ({
             offerId: offer.id,

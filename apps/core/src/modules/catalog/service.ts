@@ -118,7 +118,7 @@ export async function listProducts(db: Database, store: StoreContext, input: Lis
       attributes: p.attributes,
       image: image ? { url: image.url, alt: image.alt } : null,
       priceFrom: minPrice === null ? null : toMoney(minPrice, input.currency.code, input.currency.minorUnits),
-      inStock: own.some((v) => v.stockQuantity > 0),
+      inStock: own.some((v) => v.available > 0),
     };
   });
 
@@ -198,7 +198,7 @@ export async function getProduct(
           id: v.id,
           sku: v.sku,
           options: v.options,
-          inStock: own.some((o) => o.stockQuantity > 0),
+          inStock: own.some((o) => o.available > 0),
           price: money(best?.amountMinor ?? null),
           compareAtPrice: money(best?.compareAtMinor ?? null),
           /** The offer a cart line will reference; other merchants' offers are counted in offerCount. */

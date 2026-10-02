@@ -29,6 +29,13 @@
       "when": 1790810355646,
       "tag": "0003_append_only_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790901168446,
+      "tag": "0004_inventory_locations_reservations",
+      "breakpoints": true
     }
   ]
 }

@@ -166,7 +166,7 @@ describe('merchant lifecycle: create → staff → verify → sell (details in m
       payload: offerPayload([{ currency: 'DZD', amountMinor: 800000 }]),
     });
     expect(res.statusCode).toBe(200);
-    expect(res.json().data).toMatchObject({ stockQuantity: 3, prices: [{ currency: 'DZD', amountMinor: 800000 }] });
+    expect(res.json().data).toMatchObject({ onHandQuantity: 3, availableQuantity: 3, prices: [{ currency: 'DZD', amountMinor: 800000 }] });
 
     const product = (await call({ method: 'GET', url: '/v1/stores/mb-parfum/products/oud-royal' })).json().data;
     const v50 = product.variants.find((v: { id: string }) => v.id === oud50VariantId);
