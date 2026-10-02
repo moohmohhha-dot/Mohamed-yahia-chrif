@@ -10,6 +10,7 @@
 - المخزون: [docs/INVENTORY.md](docs/INVENTORY.md)
 - الطلبات: [docs/ORDERS.md](docs/ORDERS.md)
 - الدفع (خدمة مستقلة): [docs/PAYMENTS.md](docs/PAYMENTS.md)
+- المالية (الدفتر، العمولة، التسويات): [docs/FINANCE.md](docs/FINANCE.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)

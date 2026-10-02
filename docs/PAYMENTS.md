@@ -161,6 +161,8 @@ pnpm dev                      # ARUMA CORE على :3000
 | POST | `/v1/admin/orders/:id/refunds` (Idempotency-Key) | المدير فقط |
 | POST | `/internal/payments/events` | خدمة الدفع فقط (توقيع HMAC + طابع زمني لا يتجاوز 5 دقائق) |
 
+**المطابقة:** خدمة الدفع توفر `GET /v1/reconciliation?from&to` (داخلي) وتقارن ARUMA CORE به الدفتر المالي. انظر [FINANCE.md](FINANCE.md).
+
 ## قبل الإطلاق
 1. حساب Chargily ومفتاح الاختبار، ثم دفعة اختبار كاملة (والتحقق من وحدة المبلغ).
 2. تفعيل الوضع الحقيقي بعد تحقق Chargily من الحساب.

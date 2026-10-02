@@ -3,6 +3,7 @@ import { api } from '../api';
 import { Card, ErrorBox, Loading, StatusBadge, useLoad } from '../components/ui';
 import { useI18n, type MessageKey } from '../i18n';
 import { can, useMerchant } from '../merchant-context';
+import { PayoutHistory } from './Finance';
 
 type Overview = { checks: { kind: string; status: string }[] };
 type Profile = { payoutMethod: { type: string; holderName: string; accountNumberLast4: string; currency: string } | null };
@@ -34,10 +35,8 @@ export function PayoutsPage() {
           </p>
         )}
       </Card>
-      <Card title={t('soon.title', { phase: 2 })}>
-        <p>{t('soon.payouts')}</p>
-        <div className="alert alert-warn">{t('soon.rules')}</div>
-      </Card>
+      <PayoutHistory />
+      <p className="muted small">{t('finance.notMoney')}</p>
     </>
   );
 }

@@ -6,6 +6,7 @@ import { useI18n, type MessageKey } from '../i18n';
 import { MerchantCtx, type MerchantRole } from '../merchant-context';
 import { ComingSoon } from '../pages/ComingSoon';
 import { DashboardPage } from '../pages/Dashboard';
+import { BalancePage, SettlementsPage } from '../pages/Finance';
 import { InventoryPage } from '../pages/Inventory';
 import { OffersPage } from '../pages/Offers';
 import { OrdersPage } from '../pages/Orders';
@@ -26,6 +27,8 @@ const PAGES: Partial<Record<SectionId, ComponentType>> = {
   orders: OrdersPage,
   inventory: InventoryPage,
   payouts: PayoutsPage,
+  balance: BalancePage,
+  settlements: SettlementsPage,
   verification: VerificationPage,
   settings: SettingsPage,
 };

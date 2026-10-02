@@ -165,6 +165,9 @@ try {
   await page.locator('.nav-link', { hasText: 'الرصيد' }).click();
   await page.getByText('للاطلاع فقط').first().waitFor();
   check(true, 'finance sections state they are read-only');
+  await page.getByText('لا توجد حركات مالية بعد.').first().waitFor();
+  check(true, 'a new merchant sees an empty ledger');
+  await page.screenshot({ path: join(shots, '1b-balance-ar.png'), fullPage: true });
 
   console.log('Verification through the UI (English)');
   await page.getByLabel('اللغة').first().selectOption('en');
