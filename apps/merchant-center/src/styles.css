@@ -106,3 +106,14 @@ th { font-size: 0.8rem; color: var(--muted); font-weight: 600; }
   .sidebar { border-inline-end: none; border-bottom: 1px solid var(--border); max-height: 45vh; }
   .main { padding: 16px; }
 }
+
+.wilaya-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 4px 12px;
+  max-height: 320px;
+  overflow: auto;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 8px;
+  padding: 8px;
+}

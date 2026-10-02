@@ -156,7 +156,7 @@ try {
   await page.getByRole('heading', { name: 'لوحة القيادة' }).waitFor();
   await page.getByText('لا يمكنك البيع قبل توثيق حسابك').waitFor();
   check(true, 'new merchant cannot sell yet');
-  check((await page.locator('.nav-link').count()) === 20, 'all 20 Merchant Center sections are in the menu');
+  check((await page.locator('.nav-link').count()) === 21, 'all 21 Merchant Center sections are in the menu (20 + Shipping)');
   await page.screenshot({ path: join(shots, '1-dashboard-ar.png'), fullPage: true });
 
   await page.locator('.nav-link', { hasText: 'المبيعات' }).click();
@@ -308,39 +308,81 @@ try {
   await page.getByTestId('commission-mb-parfum').getByText('12 %').waitFor();
   check((await page.getByTestId('commission-mb-parfum').locator('input').count()) === 0, 'ARUMA commission is shown read-only');
 
+  console.log('Shipping (English)');
+  await page.locator('.nav-link', { hasText: 'Shipping' }).click();
+  await page.getByText('You have no delivery method yet').waitFor();
+  check(true, 'without a delivery method the merchant is told customers cannot order');
+  await page.getByRole('button', { name: 'New zone' }).click();
+  await page.getByLabel('Zone name').fill('Ouest');
+  await page.getByLabel('31 Oran').check();
+  await page.getByLabel('46 Aïn Témouchent').check();
+  await page.getByRole('button', { name: 'Save zone' }).click();
+  await page.locator('td', { hasText: 'Oran' }).first().waitFor();
+  await page.getByRole('combobox', { name: /^Type/ }).selectOption('courier');
+  await page.getByLabel('Name shown to customers').fill('Yalidine domicile');
+  await page.getByRole('combobox', { name: /^Courier company/ }).selectOption('yalidine');
+  await page.getByRole('button', { name: 'Add method' }).click();
+  const method = page.getByTestId('method-Yalidine domicile');
+  await method.getByText('No price yet').waitFor();
+  await method.getByLabel('Zone').selectOption({ label: 'Ouest' });
+  await method.getByLabel('Price (DZD)').fill('500');
+  await method.getByLabel('Max. days').fill('4');
+  await method.getByRole('button', { name: 'Save price' }).click();
+  await method.locator('tr', { hasText: 'Ouest' }).getByText('500.00').waitFor();
+  check(true, 'zone (Oran, Aïn Témouchent), courier method and its price set from the UI');
+  await page.screenshot({ path: join(shots, '5-shipping-en.png'), fullPage: true });
+
   console.log('Orders (English)');
   const shopper = await call('POST', '/v1/auth/register', null, { email: `shopper-${run}@example.com`, password: 'a strong password', displayName: 'Yacine' });
   const offerRow = (await call('GET', `/v1/merchants/${merchantId}/offers`, owner.token))[0];
+  const lines = [{ offerId: offerRow.id, quantity: 2 }];
+  const choices = await call('POST', '/v1/stores/mb-parfum/delivery-options', null, { lines, country: 'DZ', localityId: 'DZ-31-C-oran' });
+  const option = choices.sellers[0].options[0];
+  check(option.name === 'Yalidine domicile' && option.priceMinor === 50000, 'customer in Oran is offered Yalidine at 500 DZD');
   const placed = await fetch(`${API}/v1/stores/mb-parfum/orders`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', authorization: `Bearer ${shopper.token}`, 'idempotency-key': `e2e-${run}-order` },
     body: JSON.stringify({
-      lines: [{ offerId: offerRow.id, quantity: 2 }],
+      lines,
       paymentMethod: 'cash_on_delivery',
-      shippingAddress: { fullName: 'Yacine Meziane', phone: '+213661234567', line1: '5 rue Larbi Ben Mhidi', city: 'Oran', region: 'Oran', country: 'DZ' },
+      shippingAddress: { fullName: 'Yacine Meziane', phone: '0661 23 45 67', country: 'DZ', localityId: 'DZ-31-C-oran', line1: '5 rue Larbi Ben Mhidi', deliveryNotes: 'Appeler avant de passer' },
+      delivery: [{ merchantId, methodId: option.methodId }],
     }),
   }).then((r) => r.json());
   const number = placed.data.orders[0].number;
+  check(placed.data.orders[0].shippingMinor === 50000, 'order charged the delivery price computed by the server');
 
   await page.locator('.nav-link', { hasText: 'Orders' }).click();
   await page.getByRole('button', { name: number }).click();
   await page.getByRole('heading', { name: number }).waitFor();
+  await page.getByText('Wilaya: Oran').waitFor();
+  await page.getByTestId('delivery-notes').getByText('Appeler avant de passer').waitFor();
+  check(true, 'address shows Commune, Daïra, Wilaya and the delivery notes');
   await page.getByRole('button', { name: 'Confirm order' }).click();
-  await page.getByRole('button', { name: 'Start preparing' }).click();
-  await page.getByRole('button', { name: 'Hand to carrier' }).click();
-  await page.getByLabel('Note (e.g. tracking number)').fill('Yalidine 4512');
-  await page.getByRole('button', { name: 'Confirm · Hand to carrier' }).click();
-  await page.getByRole('button', { name: 'Mark delivered' }).click();
+  const shipment = page.getByTestId('shipment');
+  await shipment.getByRole('button', { name: 'Prepare the parcel' }).click();
+  await shipment.getByText('Being prepared').first().waitFor();
+  await shipment.getByRole('button', { name: 'Handed to courier' }).click();
+  await shipment.getByLabel('Tracking number').fill('YAL-4512');
+  await shipment.getByRole('button', { name: 'Confirm · Handed to courier' }).click();
+  await shipment.getByText('YAL-4512').waitFor();
+  await shipment.getByRole('button', { name: 'Out for delivery' }).click();
+  await shipment.getByLabel('Place (optional)').fill('Oran');
+  await shipment.getByRole('button', { name: 'Confirm · Out for delivery' }).click();
+  await shipment.getByRole('button', { name: 'Delivered' }).click();
+  await shipment.getByRole('button', { name: 'Confirm · Delivered' }).click();
+  await page.getByRole('heading', { name: number }).getByText('Delivered').waitFor();
+  check(true, 'parcel prepared, handed to Yalidine with its tracking number, out for delivery, delivered — the order followed');
   await page.getByRole('button', { name: 'Record a return' }).click();
   await page.getByLabel('Reason (required)').fill('Refusé à la livraison');
   await page.getByRole('button', { name: 'Confirm · Record a return' }).click();
   await page.getByTestId('order-history').locator('tbody tr').nth(5).waitFor();
   const rows = await page.getByTestId('order-history').locator('tbody tr').count();
   check(rows === 6, 'order moved new → processing → preparing → shipping → delivered → returned, all recorded');
+  check((await page.getByTestId('shipment-history').locator('tbody tr').count()) === 5, 'tracking history: prepared, in transit, out for delivery, delivered, back');
   check((await page.getByRole('button', { name: 'Refund' }).count()) === 0, 'merchant has no refund button');
-  await page.getByText('Refusé à la livraison').waitFor();
-  await page.getByText('Yalidine 4512').waitFor();
-  check(true, 'history shows the reason and the tracking note');
+  await page.getByText('Refusé à la livraison').first().waitFor();
+  check(true, 'history shows the reason');
   await page.screenshot({ path: join(shots, '5-order-en.png'), fullPage: true });
 
   await page.getByLabel('Language').first().selectOption('ar');

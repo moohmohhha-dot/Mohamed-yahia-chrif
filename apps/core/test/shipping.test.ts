@@ -30,7 +30,7 @@ const ok = async (res: Awaited<ReturnType<typeof call>>, status = 200) => {
   return res.json().data;
 };
 
-const methods: Record<string, string> = {};
+const methods = {} as Record<'merchant' | 'courier' | 'pickup' | 'prepaidOnly' | 'api', string>;
 let algiersZone: string;
 let babElOuedZone: string;
 
@@ -61,7 +61,7 @@ const available = async () => (await db.select().from(s.offers).where(eq(s.offer
 
 beforeAll(async () => {
   await app.ready();
-  [admin, owner, manager, staff, customer, stranger] = await Promise.all([1, 2, 3, 4, 5, 6].map(() => registerUser(app)));
+  [admin, owner, manager, staff, customer, stranger] = await Promise.all([registerUser(app), registerUser(app), registerUser(app), registerUser(app), registerUser(app), registerUser(app)]);
   await db.update(s.users).set({ role: 'admin' }).where(eq(s.users.id, admin.userId));
   const slug = uniqueSlug();
   merchantId = (
@@ -147,7 +147,7 @@ describe('Algerian addresses', () => {
 /** A merchant delivery method in the Algiers zone (created once). */
 async function merchantDeliveryMethod() {
   if (!methods.merchant) await setUpDelivery();
-  return methods.merchant!;
+  return methods.merchant;
 }
 
 async function setUpDelivery() {

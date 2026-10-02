@@ -106,6 +106,13 @@
       "when": 1790905426789,
       "tag": "0014_dz_areas",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1790906767704,
+      "tag": "0015_shipment_pickup_transitions",
+      "breakpoints": true
     }
   ]
 }

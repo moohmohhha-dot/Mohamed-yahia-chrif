@@ -5,6 +5,7 @@ import { Card, ErrorBox, Field, Loading, useAction, useLoad } from '../component
 import { useI18n, type MessageKey } from '../i18n';
 import { useMerchant } from '../merchant-context';
 import { nameIn, sizeLabel } from './common';
+import { ShipmentPanel, type Delivery, type Shipment } from './Shipment';
 
 const STATUSES = ['new', 'processing', 'preparing', 'shipping', 'delivered', 'cancelled', 'returned', 'refunded'] as const;
 type Status = (typeof STATUSES)[number];
@@ -46,7 +47,20 @@ type OrderDetail = OrderSummary & {
   commissionBps: number;
   refundedMinor: number;
   customerNote: string | null;
-  shippingAddress: { fullName: string; phone: string; line1: string; line2?: string; city: string; region: string; postalCode?: string; country: string };
+  shippingAddress: {
+    fullName: string;
+    phone: string;
+    line1: string;
+    line2?: string;
+    city: string;
+    district?: string;
+    region: string;
+    postalCode?: string;
+    country: string;
+    deliveryNotes?: string;
+  };
+  delivery: Delivery | null;
+  shipment: Shipment | null;
   lines: { id: string; sku: string; productNames: Record<string, string>; options: Record<string, unknown>; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
   history: { id: string; fromStatus: Status | null; toStatus: Status; actorType: string; actorName: string | null; reason: string | null; note: string | null; createdAt: string }[];
   allowedTransitions: { to: Status; reasonRequired: boolean }[];
@@ -154,6 +168,7 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
         <div className="alert alert-warn">{t('orders.awaitingPayment')}</div>
       )}
       <Actions order={o} url={url} onDone={() => void order.reload()} />
+      <ShipmentPanel orderUrl={url} orderStatus={o.status} delivery={o.delivery} shipment={o.shipment} currency={o.currency} onDone={() => void order.reload()} />
 
       <div className="form-grid">
         <Card title={t('orders.address')}>
@@ -165,8 +180,20 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
             {o.shippingAddress.line1}
             {o.shippingAddress.line2 && <>, {o.shippingAddress.line2}</>}
             <br />
-            {o.shippingAddress.city}, {o.shippingAddress.region} {o.shippingAddress.postalCode ?? ''} · {o.shippingAddress.country}
+            {t('address.commune')}: {o.shippingAddress.city}
+            {o.shippingAddress.district && (
+              <>
+                {' '}
+                · {t('address.daira')}: {o.shippingAddress.district}
+              </>
+            )}{' '}
+            · {t('address.wilaya')}: {o.shippingAddress.region} {o.shippingAddress.postalCode ?? ''} · {o.shippingAddress.country}
           </p>
+          {o.shippingAddress.deliveryNotes && (
+            <p className="small" data-testid="delivery-notes">
+              {t('address.deliveryNotes')}: {o.shippingAddress.deliveryNotes}
+            </p>
+          )}
           {o.customerNote && (
             <p className="muted small">
               {t('orders.customerNote')}: {o.customerNote}
@@ -280,7 +307,10 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
 function Actions({ order, url, onDone }: { order: OrderDetail; url: string; onDone: () => void }) {
   const { t } = useI18n();
   const [pending, setPending] = useState<{ to: Status; reasonRequired: boolean } | null>(null);
-  const [form, setForm] = useState({ reason: '', note: '', restock: true });
+  const [form, setForm] = useState({ reason: '', note: '', restock: true, trackingNumber: '' });
+  // Leaving with a courier needs its tracking number, unless the parcel already has one.
+  const askTracking =
+    (order.delivery?.type === 'courier' || order.delivery?.type === 'pickup_point') && !order.shipment?.trackingNumber;
   const action = useAction();
   const send = (to: Status) =>
     action.run(async () => {
@@ -289,9 +319,10 @@ function Actions({ order, url, onDone }: { order: OrderDetail; url: string; onDo
         ...(form.reason.trim() ? { reason: form.reason.trim() } : {}),
         ...(form.note.trim() ? { note: form.note.trim() } : {}),
         ...(to === 'returned' ? { restock: form.restock } : {}),
+        ...(to === 'shipping' && form.trackingNumber.trim() ? { trackingNumber: form.trackingNumber.trim() } : {}),
       });
       setPending(null);
-      setForm({ reason: '', note: '', restock: true });
+      setForm({ reason: '', note: '', restock: true, trackingNumber: '' });
       onDone();
     });
 
@@ -327,6 +358,11 @@ function Actions({ order, url, onDone }: { order: OrderDetail; url: string; onDo
           {pending.to !== 'shipping' && (
             <Field label={pending.reasonRequired ? t('orders.reasonRequired') : t('orders.reason')}>
               <input required={pending.reasonRequired} maxLength={500} value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+            </Field>
+          )}
+          {pending.to === 'shipping' && askTracking && (
+            <Field label={t('shipment.trackingNumber')}>
+              <input dir="ltr" required minLength={3} maxLength={64} value={form.trackingNumber} onChange={(e) => setForm({ ...form, trackingNumber: e.target.value })} />
             </Field>
           )}
           <Field label={t('orders.note')}>
