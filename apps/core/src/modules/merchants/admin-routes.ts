@@ -71,7 +71,8 @@ export async function merchantAdminRoutes(app: FastifyInstance) {
 
   app.put('/v1/admin/stores/:storeSlug/merchants/:merchantId', admin, async (req) => {
     const { storeSlug, merchantId } = merchantParams.extend({ storeSlug: z.string().max(64) }).parse(req.params);
-    const { commissionBps } = z.object({ commissionBps: z.number().int().min(0).max(10000) }).parse(req.body);
+    // null = follow the store / platform commission rules (8 % by default); a number overrides them for this merchant.
+    const { commissionBps } = z.object({ commissionBps: z.number().int().min(0).max(10000).nullable() }).parse(req.body);
     const store = await getActiveStore(app.db, storeSlug);
     return { data: await attachMerchantToStore(app.db, actorFrom(req), { storeId: store.id, merchantId, commissionBps }) };
   });

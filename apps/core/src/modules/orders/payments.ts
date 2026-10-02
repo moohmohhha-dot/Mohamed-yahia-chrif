@@ -13,6 +13,7 @@ import { schema as s, type Database } from '@aruma/db';
 import type { Executor } from '../../shared/db.js';
 import { AppError, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
+import { postOrderPaid, postOrderRefund } from '../finance/index.js';
 import type { PaymentIntent, PaymentsClient } from '../payments/index.js';
 import { audit, recordEvent } from '../platform/index.js';
 import { transitionOrder, type OrderDeps } from './service.js';
@@ -125,6 +126,7 @@ async function applyRefund(db: Database, deps: OrderDeps, orderId: string, refun
       .set({ refundedMinor, ...(refundedMinor === current!.totalMinor ? { paymentStatus: 'refunded' as const } : {}) })
       .where(eq(s.orders.id, orderId))
       .returning();
+    await postOrderRefund(tx, current!, { id: refund.id, amountMinor: BigInt(refund.amountMinor), reason: refund.reason });
     await audit(tx, actor, {
       action: 'orders.order.refunded',
       entityType: 'order',
@@ -169,8 +171,15 @@ export async function handlePaymentEvent(db: Database, deps: OrderDeps, event: P
 
   switch (event.type) {
     case 'payment.succeeded': {
-      await db.update(s.orders).set({ paymentStatus: 'successful' }).where(and(inArray(s.orders.id, ids), eq(s.orders.paymentStatus, 'pending')));
-      await db.update(s.orders).set({ paymentStatus: 'successful' }).where(and(inArray(s.orders.id, ids), inArray(s.orders.paymentStatus, ['failed', 'cancelled'])));
+      await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(s.orders)
+          .set({ paymentStatus: 'successful' })
+          .where(and(inArray(s.orders.id, ids), inArray(s.orders.paymentStatus, ['pending', 'failed', 'cancelled'])))
+          .returning();
+        // The money is now held by the provider for these orders.
+        for (const order of updated) await postOrderPaid(tx, order);
+      });
       const cancelled = orders.filter((o) => o.status === 'cancelled');
       if (cancelled.length) {
         // Money arrived for orders that no longer exist (late payment): an administrator must refund it.

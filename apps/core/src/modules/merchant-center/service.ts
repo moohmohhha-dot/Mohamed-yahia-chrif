@@ -4,6 +4,7 @@
  */
 import { and, count, desc, eq, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
+import { resolveCommissionBps } from '../finance/index.js';
 import { requireMembership } from '../merchants/index.js';
 
 /** Sections whose module is not built yet; the Merchant Center shows them as upcoming. */
@@ -31,11 +32,9 @@ export async function getDashboard(db: Database, userId: string, merchantId: str
       .select({ kind: s.merchantVerifications.kind, status: s.merchantVerifications.status })
       .from(s.merchantVerifications)
       .where(eq(s.merchantVerifications.merchantId, merchantId)),
-    db
-      .select({ storeSlug: s.stores.slug, storeName: s.stores.name, commissionBps: s.storeMerchants.commissionBps })
-      .from(s.storeMerchants)
-      .innerJoin(s.stores, eq(s.stores.id, s.storeMerchants.storeId))
-      .where(and(eq(s.storeMerchants.merchantId, merchantId), eq(s.storeMerchants.status, 'active'))),
+    listMerchantStores(db, userId, merchantId).then((rows) =>
+      rows.filter((r) => r.status === 'active').map(({ storeSlug, storeName, commissionBps }) => ({ storeSlug, storeName, commissionBps })),
+    ),
     db
       .select({ status: s.products.status, n: count() })
       .from(s.products)
@@ -94,4 +93,28 @@ export async function getDashboard(db: Database, userId: string, merchantId: str
     recentMovements,
     upcomingSections: UPCOMING_SECTIONS,
   };
+}
+
+/**
+ * Stores the merchant may sell in, with the commission that applies today: the merchant's own rate if
+ * ARUMA set one, otherwise the store / platform rule (8 % by default). Read-only for merchants.
+ */
+export async function listMerchantStores(db: Database, userId: string, merchantId: string) {
+  await requireMembership(db, merchantId, userId);
+  const rows = await db
+    .select({ storeId: s.stores.id, storeSlug: s.stores.slug, storeName: s.stores.name, override: s.storeMerchants.commissionBps, status: s.storeMerchants.status })
+    .from(s.storeMerchants)
+    .innerJoin(s.stores, eq(s.stores.id, s.storeMerchants.storeId))
+    .where(eq(s.storeMerchants.merchantId, merchantId));
+  const result = [];
+  for (const r of rows) {
+    result.push({
+      storeSlug: r.storeSlug,
+      storeName: r.storeName,
+      status: r.status,
+      commissionBps: await resolveCommissionBps(db, r.storeId, merchantId),
+      commissionSource: r.override === null ? 'rules' : 'merchant_rate',
+    });
+  }
+  return result;
 }

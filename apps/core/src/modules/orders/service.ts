@@ -4,6 +4,7 @@ import type { Executor } from '../../shared/db.js';
 import { AppError, badRequest, forbidden, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { consumeStock, receiveReturn, releaseStock } from '../inventory/index.js';
+import { postOrderDelivered } from '../finance/index.js';
 import type { PaymentsClient } from '../payments/index.js';
 import { requireMembership } from '../merchants/index.js';
 import { audit, recordEvent } from '../platform/index.js';
@@ -113,6 +114,8 @@ export async function transitionOrder(db: Database, deps: OrderDeps, actor: Orde
       note: [input.note?.trim(), input.to === 'returned' ? `restock: ${input.restock ? 'yes' : 'no'}` : null].filter(Boolean).join(' · ') || null,
       createdAt: now,
     });
+    // Delivery is when the sale counts: merchant due, ARUMA commission and fee go into the ledger.
+    if (input.to === 'delivered') await postOrderDelivered(tx, updated!, now);
     await audit(tx, actor, {
       action: 'orders.order.status_changed',
       entityType: 'order',

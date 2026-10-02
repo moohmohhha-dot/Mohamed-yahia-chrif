@@ -64,6 +64,27 @@
       "when": 1790903362546,
       "tag": "0008_order_payment_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790904177892,
+      "tag": "0009_finance_ledger",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790904178972,
+      "tag": "0010_finance_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790904213315,
+      "tag": "0011_order_fee",
+      "breakpoints": true
     }
   ]
 }

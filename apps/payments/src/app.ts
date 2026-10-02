@@ -12,6 +12,7 @@ import {
   getIntent,
   handleWebhook,
   PaymentError,
+  reconciliationReport,
   refundIntent,
   retryIntent,
   verifyIntent,
@@ -41,6 +42,8 @@ const params = z.object({ id: z.uuid() });
 
 export function buildPaymentsApp({ db, providers, defaultOnlineProvider, publicBaseUrl, clients, sandbox, ...options }: PaymentsAppOptions) {
   const app = Fastify(options);
+  // Amounts are stored as bigint (minor units); JSON has no bigint, and every amount fits in a safe integer.
+  app.setReplySerializer((payload) => JSON.stringify(payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)));
   const deps: Deps = { db, providers, defaultOnlineProvider, publicBaseUrl };
 
   app.setErrorHandler((error, req, reply) => {
@@ -92,6 +95,10 @@ export function buildPaymentsApp({ db, providers, defaultOnlineProvider, publicB
         })
         .parse(req.body);
       return reply.status(201).send({ data: await createIntent(deps, clientOf(req), idempotencyKey(req), body) });
+    });
+    internal.get('/v1/reconciliation', async (req) => {
+      const q = z.object({ from: z.iso.datetime(), to: z.iso.datetime() }).parse(req.query);
+      return { data: await reconciliationReport(deps, clientOf(req), new Date(q.from), new Date(q.to)) };
     });
     internal.get('/v1/payment-intents/:id', async (req) => ({ data: await getIntent(deps, clientOf(req), params.parse(req.params).id) }));
     internal.post('/v1/payment-intents/:id/retry', async (req) => ({ data: await retryIntent(deps, clientOf(req), params.parse(req.params).id) }));

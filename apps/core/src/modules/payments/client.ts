@@ -40,6 +40,8 @@ export interface PaymentsClient {
   verify(id: string): Promise<PaymentIntent>;
   cancel(id: string, reason: string): Promise<PaymentIntent>;
   cashCollected(id: string, amountMinor: number, collectedBy: string): Promise<PaymentIntent>;
+  /** Paid / refunded payments created in [from, to), with their refunds (for finance reconciliation). */
+  reconciliation(from: Date, to: Date): Promise<(PaymentIntent & { refunds: { id: string; amountMinor: number; scope: string | null; method: string }[] })[]>;
   refund(
     id: string,
     idempotencyKey: string,
@@ -86,5 +88,7 @@ export function createHttpPaymentsClient(options: { baseUrl: string; token: stri
     cancel: (id, reason) => call('POST', `/v1/payment-intents/${id}/cancel`, { reason }),
     cashCollected: (id, amountMinor, collectedBy) => call('POST', `/v1/payment-intents/${id}/cash-collected`, { amountMinor, collectedBy }),
     refund: (id, key, body) => call('POST', `/v1/payment-intents/${id}/refunds`, body, key),
+    reconciliation: (from, to) =>
+      call('GET', `/v1/reconciliation?from=${encodeURIComponent(from.toISOString())}&to=${encodeURIComponent(to.toISOString())}`),
   };
 }

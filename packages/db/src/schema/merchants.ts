@@ -228,7 +228,8 @@ export const storeMerchants = pgTable(
     merchantId: uuid('merchant_id')
       .notNull()
       .references(() => merchants.id, { onDelete: 'cascade' }),
-    commissionBps: integer('commission_bps').notNull().default(0), // 100 bps = 1 %
+    /** Merchant-specific override in this store; null = use the store / platform commission rules. 100 bps = 1 %. */
+    commissionBps: integer('commission_bps'),
     status: recordStatus('status').notNull().default('active'),
   },
   (t) => [primaryKey({ columns: [t.storeId, t.merchantId] })],

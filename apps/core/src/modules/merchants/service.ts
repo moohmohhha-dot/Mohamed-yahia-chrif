@@ -153,7 +153,7 @@ export async function removeStaffMember(db: Database, actor: Actor & { userId: s
 export async function attachMerchantToStore(
   db: Database,
   actor: Actor,
-  input: { storeId: string; merchantId: string; commissionBps: number },
+  input: { storeId: string; merchantId: string; commissionBps: number | null },
 ) {
   return db.transaction(async (tx) => {
     await getMerchant(tx, input.merchantId);
@@ -214,16 +214,3 @@ export async function listMerchants(
     .offset((filter.page - 1) * filter.pageSize);
 }
 
-/** Stores the merchant may sell in, with the platform commission. Read-only for merchants. */
-export async function listMerchantStores(db: Database, merchantId: string) {
-  return db
-    .select({
-      storeSlug: s.stores.slug,
-      storeName: s.stores.name,
-      commissionBps: s.storeMerchants.commissionBps,
-      status: s.storeMerchants.status,
-    })
-    .from(s.storeMerchants)
-    .innerJoin(s.stores, eq(s.stores.id, s.storeMerchants.storeId))
-    .where(eq(s.storeMerchants.merchantId, merchantId));
-}

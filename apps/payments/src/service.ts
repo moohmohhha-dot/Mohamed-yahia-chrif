@@ -11,7 +11,7 @@
  * - Creating an intent and a refund requires an idempotency key; webhooks are de-duplicated by event id.
  * - Every status change is recorded (append-only) and announced to the client as a signed event.
  */
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import type { PaymentsDb, PaymentsTx } from './db/client.js';
 import * as t from './db/schema.js';
 import { enqueueEvent } from './events.js';
@@ -524,3 +524,31 @@ export async function handleWebhook(deps: Deps, providerName: string, rawBody: B
   return { duplicate: false };
 }
 
+
+/**
+ * Reconciliation feed: every paid (or refunded) payment created in [from, to), with its refunds,
+ * so the client can compare it with its own ledger.
+ */
+export async function reconciliationReport(deps: Deps, client: string, from: Date, to: Date) {
+  const intents = await deps.db
+    .select()
+    .from(t.paymentIntents)
+    .where(
+      and(
+        eq(t.paymentIntents.client, client),
+        inArray(t.paymentIntents.status, ['successful', 'refunded']),
+        gte(t.paymentIntents.createdAt, from),
+        lt(t.paymentIntents.createdAt, to),
+      ),
+    );
+  const refundRows = intents.length
+    ? await deps.db
+        .select()
+        .from(t.refunds)
+        .where(and(inArray(t.refunds.intentId, intents.map((i) => i.id)), eq(t.refunds.status, 'successful')))
+    : [];
+  return intents.map((i) => ({
+    ...publicIntent(i),
+    refunds: refundRows.filter((r) => r.intentId === i.id).map((r) => ({ id: r.id, amountMinor: Number(r.amountMinor), scope: r.scope, method: r.method })),
+  }));
+}

@@ -53,6 +53,8 @@ export function buildApp(
   { authRateLimitMax = 10, ...options }: AppOptions = {},
 ) {
   const app = Fastify(options);
+  // Amounts are stored as bigint (minor units); JSON has no bigint, and every amount fits in a safe integer.
+  app.setReplySerializer((payload) => JSON.stringify(payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)));
   app.decorate('db', db);
   app.decorate('secrets', services.secrets);
   app.decorate('storage', services.storage);

@@ -6,6 +6,7 @@
  */
 import type { FastifyInstance } from 'fastify';
 import { catalogRoutes, merchantCatalogRoutes } from './catalog/index.js';
+import { financeRoutes } from './finance/index.js';
 import { identityRoutes } from './identity/index.js';
 import { inventoryRoutes } from './inventory/index.js';
 import { merchantCenterRoutes } from './merchant-center/index.js';
@@ -25,6 +26,7 @@ export async function registerModules(app: FastifyInstance, options: ModuleOptio
   await app.register(offerRoutes);
   await app.register(inventoryRoutes);
   await app.register(orderRoutes);
+  await app.register(financeRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantCenterRoutes);
 }

@@ -7,6 +7,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import type { Transaction } from '../../shared/db.js';
 import { AppError, badRequest } from '../../shared/errors.js';
+import { getSetting, resolveCommissionBps } from '../finance/index.js';
 import { reserveStock } from '../inventory/index.js';
 import { loadSellableOffers } from '../offers/index.js';
 import { audit, evaluateFlags, recordEvent } from '../platform/index.js';
@@ -90,10 +91,7 @@ export async function placeOrders(
         .select()
         .from(s.productTranslations)
         .where(inArray(s.productTranslations.productId, variants.map((v) => v.productId)));
-      const commissions = await tx
-        .select({ merchantId: s.storeMerchants.merchantId, bps: s.storeMerchants.commissionBps })
-        .from(s.storeMerchants)
-        .where(eq(s.storeMerchants.storeId, store.id));
+      const orderFee = BigInt(await getSetting(tx, 'order_fee_minor'));
 
       // One order per merchant.
       const byMerchant = new Map<string, typeof sellable>();
@@ -131,7 +129,9 @@ export async function placeOrders(
             subtotalMinor: subtotal,
             shippingMinor: shipping,
             totalMinor: subtotal + shipping,
-            commissionBps: commissions.find((c) => c.merchantId === merchantId)?.bps ?? 0,
+            // Commission and fee in force now are frozen in the order (configurable, see finance rules).
+            commissionBps: await resolveCommissionBps(tx, store.id, merchantId),
+            merchantFeeMinor: orderFee,
             paymentMethod: input.paymentMethod,
             shippingAddress: input.shippingAddress,
             customerNote: input.customerNote ?? null,

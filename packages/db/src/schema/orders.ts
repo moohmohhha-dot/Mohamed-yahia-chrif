@@ -86,6 +86,8 @@ export const orders = pgTable(
     totalMinor: bigint('total_minor', { mode: 'bigint' }).notNull(),
     /** ARUMA commission at the time of the order (finance uses this, not today's rate). */
     commissionBps: integer('commission_bps').notNull(),
+    /** Per-order fee charged to the merchant, fixed at the time of the order. */
+    merchantFeeMinor: bigint('merchant_fee_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     paymentMethod: paymentMethod('payment_method').notNull(),
     paymentStatus: orderPaymentStatus('payment_status').notNull().default('pending'),
     /** Id of the payment in the Payment Service: one per checkout for online, one per order for cash. */
