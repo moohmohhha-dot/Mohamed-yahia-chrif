@@ -1,0 +1,217 @@
+import { and, asc, desc, eq, inArray, type SQL } from 'drizzle-orm';
+import { schema as s, type Database } from '@aruma/db';
+import type { Executor } from '../../shared/db.js';
+import { AppError, badRequest, forbidden, notFound } from '../../shared/errors.js';
+import type { Actor } from '../../shared/request-context.js';
+import { consumeStock, receiveReturn, releaseStock } from '../inventory/index.js';
+import { requireMembership } from '../merchants/index.js';
+import { audit, recordEvent } from '../platform/index.js';
+import { MERCHANT_ROLES_FOR, nextStatuses, reasonRequired, TRANSITIONS, type OrderActorType, type OrderStatus } from './transitions.js';
+
+type Order = typeof s.orders.$inferSelect;
+/** Who is acting on an order. `merchantId` scopes a merchant actor to its own orders. */
+export type OrderActor = Actor & { type: OrderActorType; userId: string; merchantId?: string };
+
+export type TransitionInput = {
+  to: OrderStatus;
+  reason?: string;
+  note?: string;
+  /** Returns only: put the goods back on sale (true) or not (false, e.g. damaged). */
+  restock?: boolean;
+};
+
+/** Loads an order the actor may see; anyone else gets 404 (no hint that the order exists). */
+async function loadForActor(db: Executor, actor: OrderActor, orderId: string, lock = false): Promise<Order> {
+  const scope: SQL[] = [eq(s.orders.id, orderId)];
+  if (actor.type === 'customer') scope.push(eq(s.orders.customerUserId, actor.userId));
+  if (actor.type === 'merchant') scope.push(eq(s.orders.merchantId, actor.merchantId!));
+  const query = db.select().from(s.orders).where(and(...scope));
+  const [order] = lock ? await query.for('update') : await query;
+  if (!order) throw notFound('Order');
+  return order;
+}
+
+/**
+ * Moves an order to a new status: checks the rule table and the actor's rights, applies the stock
+ * consequence, and records the change (who, when, from, to, why) — all in one transaction.
+ */
+export async function transitionOrder(db: Database, actor: OrderActor, orderId: string, input: TransitionInput) {
+  return db.transaction(async (tx) => {
+    let merchantRole: 'owner' | 'manager' | 'staff' | null = null;
+    if (actor.type === 'merchant') merchantRole = await requireMembership(tx, actor.merchantId!, actor.userId);
+    const order = await loadForActor(tx, actor, orderId, true);
+    const from = order.status;
+
+    if (!TRANSITIONS[from][input.to]) {
+      throw new AppError(409, 'INVALID_TRANSITION', `An order cannot go from ${from} to ${input.to}`, { from, to: input.to });
+    }
+    if (!nextStatuses(from, actor.type).includes(input.to)) throw forbidden(`You cannot move an order to ${input.to}`);
+    const roles = MERCHANT_ROLES_FOR[input.to];
+    if (merchantRole && roles && !roles.includes(merchantRole)) throw forbidden(`Requires role: ${roles.join(' or ')}`);
+    if (reasonRequired(input.to, actor.type) && !input.reason?.trim()) {
+      throw badRequest('REASON_REQUIRED', `A reason is required to mark an order ${input.to}`);
+    }
+    if (input.to === 'returned' && input.restock === undefined) {
+      throw badRequest('RESTOCK_REQUIRED', 'Say whether the returned goods go back on sale (restock: true or false)');
+    }
+
+    // Stock consequences.
+    const ref = { type: 'order', id: order.id };
+    const stockCtx = { actorUserId: actor.userId, reason: input.reason ?? `Order ${order.number} → ${input.to}` };
+    if (input.to === 'cancelled') await releaseStock(tx, ref, stockCtx);
+    if (input.to === 'shipping') await consumeStock(tx, ref, stockCtx);
+    if (input.to === 'returned' && input.restock) {
+      const lines = await tx.select().from(s.orderLines).where(eq(s.orderLines.orderId, order.id));
+      await receiveReturn(tx, {
+        reference: ref,
+        merchantId: order.merchantId,
+        lines: lines.map((l) => ({ offerId: l.offerId, quantity: l.quantity })),
+        actorUserId: actor.userId,
+        note: input.reason,
+      });
+    }
+
+    const now = new Date();
+    const [updated] = await tx
+      .update(s.orders)
+      .set({ status: input.to, statusChangedAt: now })
+      .where(eq(s.orders.id, order.id))
+      .returning();
+    await tx.insert(s.orderStatusHistory).values({
+      orderId: order.id,
+      fromStatus: from,
+      toStatus: input.to,
+      actorType: actor.type,
+      actorUserId: actor.userId,
+      reason: input.reason?.trim() || null,
+      note: [input.note?.trim(), input.to === 'returned' ? `restock: ${input.restock ? 'yes' : 'no'}` : null].filter(Boolean).join(' · ') || null,
+      createdAt: now,
+    });
+    await audit(tx, actor, {
+      action: 'orders.order.status_changed',
+      entityType: 'order',
+      entityId: order.id,
+      metadata: { from, to: input.to, reason: input.reason ?? null },
+    });
+    await recordEvent(tx, {
+      type: 'orders.order.status_changed',
+      aggregateType: 'order',
+      aggregateId: order.id,
+      payload: { number: order.number, merchantId: order.merchantId, from, to: input.to },
+    });
+    return updated!;
+  });
+}
+
+const money = (v: bigint) => Number(v);
+
+/** Full order: lines, address, and the complete status history with who did what. */
+export async function getOrder(db: Database, actor: OrderActor, orderId: string) {
+  if (actor.type === 'merchant') await requireMembership(db, actor.merchantId!, actor.userId);
+  const order = await loadForActor(db, actor, orderId);
+  const lines = await db.select().from(s.orderLines).where(eq(s.orderLines.orderId, order.id));
+  const history = await db
+    .select({
+      id: s.orderStatusHistory.id,
+      fromStatus: s.orderStatusHistory.fromStatus,
+      toStatus: s.orderStatusHistory.toStatus,
+      actorType: s.orderStatusHistory.actorType,
+      actorName: s.users.displayName,
+      reason: s.orderStatusHistory.reason,
+      note: s.orderStatusHistory.note,
+      createdAt: s.orderStatusHistory.createdAt,
+    })
+    .from(s.orderStatusHistory)
+    .leftJoin(s.users, eq(s.users.id, s.orderStatusHistory.actorUserId))
+    .where(eq(s.orderStatusHistory.orderId, order.id))
+    .orderBy(asc(s.orderStatusHistory.createdAt), asc(s.orderStatusHistory.id));
+  const [merchant] = await db.select({ name: s.merchants.name, slug: s.merchants.slug }).from(s.merchants).where(eq(s.merchants.id, order.merchantId));
+
+  const { commissionBps, ...summary } = serializeOrder(order);
+  return {
+    ...summary,
+    ...(actor.type === 'customer' ? {} : { commissionBps }),
+    merchant: merchant!,
+    shippingAddress: order.shippingAddress,
+    customerNote: order.customerNote,
+    lines: lines.map((l) => ({
+      id: l.id,
+      offerId: l.offerId,
+      sku: l.sku,
+      productNames: l.productNames,
+      options: l.options,
+      quantity: l.quantity,
+      unitPriceMinor: money(l.unitPriceMinor),
+      lineTotalMinor: money(l.lineTotalMinor),
+    })),
+    // The customer sees who changed the status by role, not staff names.
+    history: history.map((h) => ({ ...h, actorName: actor.type === 'customer' && h.actorType !== 'customer' ? null : h.actorName })),
+    allowedTransitions: nextStatuses(order.status, actor.type).map((to) => ({ to, reasonRequired: reasonRequired(to, actor.type) })),
+  };
+}
+
+function serializeOrder(o: Order) {
+  return {
+    id: o.id,
+    number: o.number,
+    checkoutId: o.checkoutId,
+    merchantId: o.merchantId,
+    status: o.status,
+    currency: o.currency,
+    subtotalMinor: money(o.subtotalMinor),
+    shippingMinor: money(o.shippingMinor),
+    totalMinor: money(o.totalMinor),
+    // The commission is ARUMA-internal: merchants see it (it is their contract), customers do not.
+    commissionBps: o.commissionBps,
+    paymentMethod: o.paymentMethod,
+    placedAt: o.placedAt,
+    statusChangedAt: o.statusChangedAt,
+  };
+}
+
+async function listOrders(db: Database, conditions: SQL[], page: number, pageSize: number) {
+  const rows = await db
+    .select()
+    .from(s.orders)
+    .where(and(...conditions))
+    .orderBy(desc(s.orders.placedAt), desc(s.orders.number))
+    .limit(pageSize)
+    .offset((page - 1) * pageSize);
+  const counts = rows.length
+    ? await db
+        .select({ orderId: s.orderLines.orderId, quantity: s.orderLines.quantity })
+        .from(s.orderLines)
+        .where(inArray(s.orderLines.orderId, rows.map((r) => r.id)))
+    : [];
+  return rows.map((o) => ({
+    ...serializeOrder(o),
+    items: counts.filter((c) => c.orderId === o.id).reduce((n, c) => n + c.quantity, 0),
+    city: o.shippingAddress.city,
+    region: o.shippingAddress.region,
+    customerName: o.shippingAddress.fullName,
+  }));
+}
+
+type ListFilter = { status?: OrderStatus; page: number; pageSize: number };
+
+export function listCustomerOrders(db: Database, userId: string, f: ListFilter) {
+  const conditions = [eq(s.orders.customerUserId, userId)];
+  if (f.status) conditions.push(eq(s.orders.status, f.status));
+  return listOrders(db, conditions, f.page, f.pageSize).then((rows) =>
+    rows.map(({ commissionBps: _c, ...r }) => r),
+  );
+}
+
+export async function listMerchantOrders(db: Database, userId: string, merchantId: string, f: ListFilter) {
+  await requireMembership(db, merchantId, userId);
+  const conditions = [eq(s.orders.merchantId, merchantId)];
+  if (f.status) conditions.push(eq(s.orders.status, f.status));
+  return listOrders(db, conditions, f.page, f.pageSize);
+}
+
+export function listAllOrders(db: Database, f: ListFilter & { merchantId?: string }) {
+  const conditions: SQL[] = [];
+  if (f.status) conditions.push(eq(s.orders.status, f.status));
+  if (f.merchantId) conditions.push(eq(s.orders.merchantId, f.merchantId));
+  return listOrders(db, conditions, f.page, f.pageSize);
+}

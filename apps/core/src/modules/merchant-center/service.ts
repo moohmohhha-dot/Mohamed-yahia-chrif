@@ -8,7 +8,6 @@ import { requireMembership } from '../merchants/index.js';
 
 /** Sections whose module is not built yet; the Merchant Center shows them as upcoming. */
 export const UPCOMING_SECTIONS = {
-  orders: 1,
   sales: 1,
   customers: 1,
   coupons: 2,
@@ -71,7 +70,14 @@ export async function getDashboard(db: Database, userId: string, merchantId: str
       .limit(5),
   ]);
 
+  const ordersByStatus = await db
+    .select({ status: s.orders.status, n: count() })
+    .from(s.orders)
+    .where(eq(s.orders.merchantId, merchantId))
+    .groupBy(s.orders.status);
+
   return {
+    orders: Object.fromEntries(ordersByStatus.map((o) => [o.status, o.n])),
     merchant: {
       id: merchant!.id,
       name: merchant!.name,

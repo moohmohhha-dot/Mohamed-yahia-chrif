@@ -5,6 +5,7 @@ import type { Executor } from '../../shared/db.js';
 export type SellableOffer = {
   offerId: string;
   variantId: string;
+  merchantId: string;
   merchant: { slug: string; name: string };
   /** Units a customer can still buy (on hand minus reserved, all locations). */
   available: number;
@@ -27,6 +28,7 @@ export async function loadSellableOffers(
     .select({
       offerId: s.offers.id,
       variantId: s.offers.variantId,
+      merchantId: s.offers.merchantId,
       merchantSlug: s.merchants.slug,
       merchantName: s.merchants.name,
       available: s.offers.availableQuantity,

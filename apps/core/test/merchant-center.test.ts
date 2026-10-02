@@ -178,7 +178,9 @@ describe('offers and inventory', () => {
     expect(d.products).toEqual({ active: 1 });
     expect(d.offers).toMatchObject({ active: 1, outOfStock: 0, units: 20, reserved: 0, available: 20 });
     expect(d.recentMovements[0]).toMatchObject({ sku: 'MUSC-NUIT-50', reason: 'correction' });
-    expect(d.upcomingSections.orders).toBe(1);
+    expect(d.upcomingSections.orders).toBeUndefined();
+    expect(d.upcomingSections.sales).toBe(1);
+    expect(d.orders).toEqual({});
   });
 });
 

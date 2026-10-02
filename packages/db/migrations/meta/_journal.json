@@ -36,6 +36,20 @@
       "when": 1790901168446,
       "tag": "0004_inventory_locations_reservations",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790902142899,
+      "tag": "0005_orders",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790902144032,
+      "tag": "0006_order_guards",
+      "breakpoints": true
     }
   ]
 }

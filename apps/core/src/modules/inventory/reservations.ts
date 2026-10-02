@@ -15,6 +15,7 @@ import type { Transaction } from '../../shared/db.js';
 import { AppError, badRequest } from '../../shared/errors.js';
 import { recordEvent } from '../platform/index.js';
 import { applyChange } from './levels.js';
+import { ensureDefaultLocation } from './locations.js';
 
 export type StockReference = { type: string; id: string };
 export type ReservationLine = { offerId: string; quantity: number };
@@ -184,4 +185,25 @@ export async function releaseExpiredReservations(db: Database, now = new Date())
     freed += (await db.transaction((tx) => close(tx, ref, 'expired', { reason: 'Reservation expired', expiredBefore: now }))) > 0 ? 1 : 0;
   }
   return freed;
+}
+
+/**
+ * Returned goods put back on sale (the merchant decided they are resellable): on hand increases at the
+ * merchant's default location. Recorded with the order as reference.
+ */
+export async function receiveReturn(
+  tx: Transaction,
+  input: { reference: StockReference; merchantId: string; lines: ReservationLine[]; actorUserId?: string | null; note?: string },
+) {
+  const location = await ensureDefaultLocation(tx, input.merchantId);
+  for (const line of [...input.lines].sort((a, b) => a.offerId.localeCompare(b.offerId))) {
+    await applyChange(tx, line.offerId, location.id, { onHand: line.quantity }, {
+      merchantId: input.merchantId,
+      reason: 'returned',
+      note: input.note ?? null,
+      actorUserId: input.actorUserId,
+      referenceType: input.reference.type,
+      referenceId: input.reference.id,
+    });
+  }
 }

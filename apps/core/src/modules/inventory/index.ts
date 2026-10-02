@@ -8,6 +8,7 @@ export { ensureDefaultLocation } from './locations.js';
 export { setOnHand, type InventoryReason } from './levels.js';
 export {
   consumeStock,
+  receiveReturn,
   releaseExpiredReservations,
   releaseStock,
   reserveStock,
