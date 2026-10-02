@@ -7,7 +7,7 @@
  * order_status_history (append-only): who, when, from, to, and why.
  */
 import { sql } from 'drizzle-orm';
-import { bigint, char, check, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar } from 'drizzle-orm/pg-core';
+import { bigint, char, check, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar, type AnyPgColumn } from 'drizzle-orm/pg-core';
 import { id } from './common.js';
 import { users } from './identity.js';
 import { merchants } from './merchants.js';
@@ -15,6 +15,7 @@ import { offers } from './offers.js';
 import { currencies } from './reference.js';
 import { stores } from './tenancy.js';
 import { productVariants } from './catalog.js';
+import { shippingMethods } from './shipping.js';
 
 export const orderStatus = pgEnum('order_status', [
   'new', // placed by the customer, stock reserved
@@ -48,15 +49,38 @@ export const checkouts = pgTable(
   (t) => [uniqueIndex('checkouts_customer_key_uq').on(t.customerUserId, t.idempotencyKey)],
 );
 
+/**
+ * Delivery address, frozen in the order. For countries with administrative areas (Algeria), the ids are
+ * checked by the server and the names are filled from them: region = Wilaya, district = Daïra,
+ * city = Commune.
+ */
 export type ShippingAddress = {
   fullName: string;
   phone: string;
+  country: string;
+  regionId?: string;
+  region: string;
+  districtId?: string;
+  district?: string;
+  cityId?: string;
+  city: string;
   line1: string;
   line2?: string;
-  city: string;
-  region: string;
   postalCode?: string;
-  country: string;
+  deliveryNotes?: string;
+};
+
+/** How the order is delivered, frozen at checkout (later changes to the method do not alter it). */
+export type OrderDelivery = {
+  methodId: string;
+  type: 'merchant_delivery' | 'courier' | 'local_pickup' | 'pickup_point';
+  name: string;
+  courierCode: string | null;
+  courierName: string | null;
+  minDays: number;
+  maxDays: number;
+  pickupLocation?: { address: string; hours?: string; phone?: string } | null;
+  pickupPoint?: { id: string; name: string; address: string; hours?: string | null } | null;
 };
 
 export const orders = pgTable(
@@ -95,6 +119,8 @@ export const orders = pgTable(
     /** Money given back for this order so far (partial or full refunds). */
     refundedMinor: bigint('refunded_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     shippingAddress: jsonb('shipping_address').$type<ShippingAddress>().notNull(),
+    shippingMethodId: uuid('shipping_method_id').references((): AnyPgColumn => shippingMethods.id, { onDelete: 'restrict' }),
+    delivery: jsonb('delivery').$type<OrderDelivery>(),
     customerNote: text('customer_note'),
     placedAt: timestamp('placed_at', { withTimezone: true }).notNull().defaultNow(),
     statusChangedAt: timestamp('status_changed_at', { withTimezone: true }).notNull().defaultNow(),

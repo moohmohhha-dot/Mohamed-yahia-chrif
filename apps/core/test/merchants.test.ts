@@ -211,6 +211,7 @@ describe('feature flags', () => {
     expect((await call({ method: 'GET', url })).json().data).toEqual({
       'checkout.cash_on_delivery': true,
       'checkout.online_payment': false,
+      'shipping.pickup_points': false,
     });
     const [store] = await db.select().from(s.stores).where(eq(s.stores.slug, 'mb-parfum'));
     await db.insert(s.featureFlagOverrides).values({ flagKey: 'checkout.online_payment', storeId: store!.id, enabled: true });

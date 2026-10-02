@@ -13,6 +13,7 @@ import { merchantCenterRoutes } from './merchant-center/index.js';
 import { merchantAdminRoutes, merchantRoutes } from './merchants/index.js';
 import { offerRoutes } from './offers/index.js';
 import { orderRoutes } from './orders/index.js';
+import { shippingRoutes } from './shipping/index.js';
 import { storeRoutes } from './stores/index.js';
 
 export type ModuleOptions = { authRateLimitMax: number };
@@ -27,6 +28,7 @@ export async function registerModules(app: FastifyInstance, options: ModuleOptio
   await app.register(inventoryRoutes);
   await app.register(orderRoutes);
   await app.register(financeRoutes);
+  await app.register(shippingRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantCenterRoutes);
 }

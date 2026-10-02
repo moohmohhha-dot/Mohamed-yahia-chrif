@@ -8,6 +8,7 @@ import { AppError, isUniqueViolation } from './shared/errors.js';
 import { authPlugin } from './modules/identity/index.js';
 import { registerModules } from './modules/index.js';
 import type { PaymentsClient } from './modules/payments/index.js';
+import type { CourierRegistry } from './modules/shipping/index.js';
 import type { FileStorage, MessageSender, SecretBox } from './modules/platform/index.js';
 
 declare module 'fastify' {
@@ -25,6 +26,8 @@ declare module 'fastify' {
     paymentEventsSecret: string;
     /** Where customers return after paying online. */
     storefrontUrl: string;
+    /** Courier API integrations, by courier code. */
+    couriers: CourierRegistry;
   }
 }
 
@@ -36,6 +39,8 @@ export type CoreServices = {
   payments: PaymentsClient;
   paymentEventsSecret: string;
   storefrontUrl: string;
+  /** Courier API integrations, by courier code (none: every courier is used with hand-entered tracking). */
+  couriers?: CourierRegistry;
 };
 
 export type AppOptions = FastifyServerOptions & {
@@ -62,6 +67,7 @@ export function buildApp(
   app.decorate('payments', services.payments);
   app.decorate('paymentEventsSecret', services.paymentEventsSecret);
   app.decorate('storefrontUrl', services.storefrontUrl);
+  app.decorate('couriers', services.couriers ?? {});
 
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof AppError) {

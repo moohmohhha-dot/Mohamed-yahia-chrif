@@ -11,13 +11,19 @@ import { getSetting, resolveCommissionBps } from '../finance/index.js';
 import { reserveStock } from '../inventory/index.js';
 import { loadSellableOffers } from '../offers/index.js';
 import { audit, evaluateFlags, recordEvent } from '../platform/index.js';
+import { chooseDelivery, deliveryOptions, resolveAddress, resolveLocality, type AddressInput } from '../shipping/index.js';
 import { getActiveStore, resolveCurrency } from '../stores/index.js';
+
+/** The customer's delivery choice for one merchant of the cart. */
+export type DeliveryChoice = { merchantId: string; methodId: string; pickupPointId?: string };
 
 export type CheckoutInput = {
   lines: { offerId: string; quantity: number }[];
   currency?: string;
   paymentMethod: 'cash_on_delivery' | 'online';
-  shippingAddress: typeof s.orders.$inferInsert.shippingAddress;
+  shippingAddress: AddressInput;
+  /** One choice per merchant in the cart. */
+  delivery: DeliveryChoice[];
   customerNote?: string;
 };
 
@@ -56,6 +62,8 @@ export async function placeOrders(
     .from(s.storeCountries)
     .where(and(eq(s.storeCountries.storeId, store.id), eq(s.storeCountries.country, input.shippingAddress.country)));
   if (!shipsTo) throw badRequest('COUNTRY_NOT_SERVED', 'This store does not deliver to that country');
+  // Wilaya, Daïra and Commune are checked and filled by the server; the phone is normalized.
+  const address = await resolveAddress(db, input.shippingAddress);
 
   const quantities = new Map<string, number>();
   for (const line of input.lines) quantities.set(line.offerId, (quantities.get(line.offerId) ?? 0) + line.quantity);
@@ -116,7 +124,23 @@ export async function placeOrders(
           };
         });
         const subtotal = lines.reduce((sum, l) => sum + l.lineTotalMinor, 0n);
-        const shipping = 0n; // delivery pricing arrives with the shipping module
+        // Shipping is priced by the server from the merchant's rates, never taken from the browser.
+        const choice = input.delivery.find((d) => d.merchantId === merchantId);
+        if (!choice) {
+          throw new AppError(400, 'DELIVERY_METHOD_REQUIRED', 'Choose how each seller delivers', {
+            merchantIds: [...byMerchant.keys()].filter((m) => !input.delivery.some((d) => d.merchantId === m)),
+          });
+        }
+        const { priceMinor: shipping, delivery } = await chooseDelivery(tx, {
+          merchantId,
+          methodId: choice.methodId,
+          pickupPointId: choice.pickupPointId,
+          address,
+          subtotalMinor: subtotal,
+          currency: currency.code,
+          paymentMethod: input.paymentMethod,
+          pickupPoints: Boolean(flags['shipping.pickup_points']),
+        });
         const [order] = await tx
           .insert(s.orders)
           .values({
@@ -133,7 +157,9 @@ export async function placeOrders(
             commissionBps: await resolveCommissionBps(tx, store.id, merchantId),
             merchantFeeMinor: orderFee,
             paymentMethod: input.paymentMethod,
-            shippingAddress: input.shippingAddress,
+            shippingAddress: address,
+            shippingMethodId: delivery.methodId,
+            delivery,
             customerNote: input.customerNote ?? null,
           })
           .returning();
@@ -156,7 +182,7 @@ export async function placeOrders(
           type: 'orders.order.placed',
           aggregateType: 'order',
           aggregateId: order!.id,
-          payload: { number: order!.number, merchantId, storeId: store.id, total: String(order!.totalMinor), currency: currency.code },
+          payload: { number: order!.number, merchantId, storeId: store.id, total: String(order!.totalMinor), currency: currency.code, deliveryType: delivery.type },
         });
         orderIds.push(order!.id);
       }
@@ -168,4 +194,37 @@ export async function placeOrders(
     if (again) return again;
     throw error;
   }
+}
+
+/**
+ * Delivery choices for a cart before checkout: the cart split by seller, and for each seller every way
+ * it can deliver to this Commune with its price and delay.
+ */
+export async function previewDelivery(
+  db: Database,
+  storeSlug: string,
+  input: { lines: { offerId: string; quantity: number }[]; currency?: string; country: string; localityId?: string },
+) {
+  const store = await getActiveStore(db, storeSlug);
+  const currency = resolveCurrency(store, input.currency);
+  const flags = await evaluateFlags(db, store.id);
+  const area = { country: input.country, ...(await resolveLocality(db, input.country, input.localityId)) };
+  const quantities = new Map<string, number>();
+  for (const line of input.lines) quantities.set(line.offerId, (quantities.get(line.offerId) ?? 0) + line.quantity);
+  const requested = await db.select({ id: s.offers.id, variantId: s.offers.variantId }).from(s.offers).where(inArray(s.offers.id, [...quantities.keys()]));
+  const sellable = (await loadSellableOffers(db, store.id, requested.map((r) => r.variantId), currency.code)).filter((o) => quantities.has(o.offerId));
+  const merchants = [...new Set(sellable.map((o) => o.merchantId))].sort();
+  const names = merchants.length ? await db.select({ id: s.merchants.id, name: s.merchants.name }).from(s.merchants).where(inArray(s.merchants.id, merchants)) : [];
+  const result = [];
+  for (const merchantId of merchants) {
+    const subtotal = sellable.filter((o) => o.merchantId === merchantId).reduce((sum, o) => sum + o.amountMinor * BigInt(quantities.get(o.offerId)!), 0n);
+    const options = await deliveryOptions(db, { merchantId, address: area, subtotalMinor: subtotal, currency: currency.code, pickupPoints: Boolean(flags['shipping.pickup_points']) });
+    result.push({
+      merchantId,
+      merchantName: names.find((n) => n.id === merchantId)?.name ?? null,
+      subtotalMinor: Number(subtotal),
+      options: options.map((o) => ({ ...o, priceMinor: Number(o.priceMinor), freeAboveMinor: o.freeAboveMinor === null ? null : Number(o.freeAboveMinor) })),
+    });
+  }
+  return { currency: currency.code, sellers: result, unavailableOfferIds: [...quantities.keys()].filter((id) => !sellable.some((o) => o.offerId === id)) };
 }

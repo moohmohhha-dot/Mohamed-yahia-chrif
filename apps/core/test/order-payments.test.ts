@@ -4,7 +4,19 @@ import { and, eq } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
 import { expireUnpaidCheckouts } from '../src/modules/orders/payments.js';
 import { createHttpPaymentsClient } from '../src/modules/payments/index.js';
-import { bearer, buildTestApp, caller, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
+import {
+  addMerchantDelivery,
+  bearer,
+  buildTestApp,
+  caller,
+  cheapestDelivery,
+  dzAddress,
+  registerUser,
+  testDatabaseUrl,
+  uniqueSlug,
+  verifyMerchantViaApi,
+  type TestUser,
+} from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -19,13 +31,13 @@ let offerId: string;
 let mbOfferId: string;
 let storeId: string;
 
-const address = { fullName: 'Lina Haddad', phone: '+213770112233', line1: '3 rue Ben Badis', city: 'Constantine', region: 'Constantine', country: 'DZ' };
-const checkout = (lines: { offerId: string; quantity: number }[], paymentMethod: 'online' | 'cash_on_delivery' = 'online', key = randomUUID()) =>
+const address = dzAddress('DZ-25-C-constantine', { fullName: 'Lina Haddad', phone: '+213770112233', line1: '3 rue Ben Badis' });
+const checkout = async (lines: { offerId: string; quantity: number }[], paymentMethod: 'online' | 'cash_on_delivery' = 'online', key = randomUUID()) =>
   app.inject({
     method: 'POST',
     url: '/v1/stores/mb-parfum/orders',
     headers: { ...bearer(customer.token), 'idempotency-key': key },
-    payload: { lines, paymentMethod, shippingAddress: address, onlinePaymentMethod: 'cib', locale: 'fr' },
+    payload: { lines, paymentMethod, shippingAddress: address, delivery: await cheapestDelivery(app, lines, address), onlinePaymentMethod: 'cib', locale: 'fr' },
   });
 const order = async (id: string) => (await db.select().from(s.orders).where(eq(s.orders.id, id)))[0]!;
 const available = async (id: string) => (await db.select().from(s.offers).where(eq(s.offers.id, id)))[0]!.availableQuantity;
@@ -51,6 +63,7 @@ beforeAll(async () => {
   ).json().data.id;
   await verifyMerchantViaApi(app, owner, admin, merchantId);
   await call('PUT', `/v1/admin/stores/mb-parfum/merchants/${merchantId}`, admin.token, { commissionBps: 1000 });
+  await addMerchantDelivery(app, owner, merchantId);
   const pslug = uniqueSlug('pay');
   productId = (
     await call('POST', `/v1/merchants/${merchantId}/products`, owner.token, {

@@ -85,6 +85,27 @@
       "when": 1790904213315,
       "tag": "0011_order_fee",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790905411732,
+      "tag": "0012_shipping",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790905425350,
+      "tag": "0013_shipping_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1790905426789,
+      "tag": "0014_dz_areas",
+      "breakpoints": true
     }
   ]
 }

@@ -10,6 +10,9 @@
  *
  * Cash on delivery: the merchant collected the 10 000 at the door, so the merchant owes ARUMA the
  * commission: merchant_pending −800 / commission_revenue +800 (netted against future payouts).
+ *
+ * Delivery price: with 10 000 of goods + 500 delivery, the commission is still 800 (8 % of the goods)
+ * and the merchant is due 9 700.
  */
 import { and, eq, isNull, lte, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
@@ -38,9 +41,11 @@ export async function postOrderPaid(db: Executor, order: Order) {
 
 /** Sale recognized at delivery: merchant due, ARUMA commission and fee. Starts the hold period. */
 export async function postOrderDelivered(db: Executor, order: Order, deliveredAt = new Date()) {
-  // Commission is charged on what the customer finally pays (refunds before delivery reduce it).
+  // What the customer finally pays (refunds before delivery reduce it). The commission applies to the
+  // goods only: the delivery price goes to the merchant, who pays the courier or delivers itself.
   const base = order.totalMinor - order.refundedMinor;
-  const commission = percentOf(base, order.commissionBps);
+  const commissionable = base < order.subtotalMinor ? base : order.subtotalMinor;
+  const commission = percentOf(commissionable, order.commissionBps);
   const fee = order.merchantFeeMinor;
   const due = base - commission - fee;
   const merchant = { purpose: 'merchant_pending' as const, merchantId: order.merchantId };
@@ -69,6 +74,8 @@ export async function postOrderDelivered(db: Executor, order: Order, deliveredAt
     description: `Order ${order.number} delivered`,
     metadata: {
       base: Number(base),
+      shipping: Number(order.shippingMinor),
+      commissionable: Number(commissionable),
       commissionBps: order.commissionBps,
       commission: Number(commission),
       fee: Number(fee),

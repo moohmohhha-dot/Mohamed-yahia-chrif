@@ -8,6 +8,7 @@ import { buildPaymentsApp, createPaymentsDb, createSandboxProvider, deliverEvent
 import { buildApp, type AppOptions } from '../src/app.js';
 import { createHttpPaymentsClient } from '../src/modules/payments/index.js';
 import { createLocalStorage, createSecretBox, type OutboundMessage } from '../src/modules/platform/index.js';
+import { createSandboxCourier } from '../src/modules/shipping/index.js';
 
 export const testDatabaseUrl =
   process.env.TEST_DATABASE_URL ?? 'postgres://aruma:aruma@localhost:5432/aruma_test';
@@ -47,6 +48,7 @@ export function buildTestApp(db: Database, options: AppOptions = {}) {
   const sentMessages: OutboundMessage[] = [];
   const storageDir = mkdtempSync(join(tmpdir(), 'aruma-storage-'));
   const payments = buildInProcessPayments();
+  const sandboxCourier = createSandboxCourier();
   const app = buildApp(
     db,
     {
@@ -56,6 +58,7 @@ export function buildTestApp(db: Database, options: AppOptions = {}) {
       payments: payments.client,
       paymentEventsSecret: EVENTS_SECRET,
       storefrontUrl: 'https://mbparfum.test',
+      couriers: { sandbox: sandboxCourier },
     },
     { authRateLimitMax: 1000, ...options },
   );
@@ -74,7 +77,7 @@ export function buildTestApp(db: Database, options: AppOptions = {}) {
     const res = await payments.app.inject({ method: 'POST', url: `${new URL(redirectUrl).pathname}/${outcome}` });
     if (res.statusCode !== 200) throw new Error(`sandbox ${outcome}: ${res.body}`);
   };
-  return Object.assign(app, { sentMessages, storageDir, paymentsApp: payments.app, flushPaymentEvents, payInSandbox, eventsSecret: EVENTS_SECRET });
+  return Object.assign(app, { sentMessages, storageDir, paymentsApp: payments.app, flushPaymentEvents, payInSandbox, eventsSecret: EVENTS_SECRET, sandboxCourier });
 }
 export type TestApp = ReturnType<typeof buildTestApp>;
 
@@ -186,4 +189,34 @@ export async function verifyMerchantViaApi(app: TestApp, owner: TestUser, admin:
     await ok(await call('POST', `/v1/admin/merchants/${merchantId}/verifications/${kind}`, admin.token, { decision: 'approve' }));
   }
   return (await ok(await call('GET', `${base}/verification`, owner.token))).json().data;
+}
+
+/** A delivery address in Algeria: the Commune id gives the Daïra and Wilaya. */
+export const dzAddress = (localityId = 'DZ-31-C-oran', extra: Record<string, string> = {}) => ({
+  fullName: 'Yacine Meziane',
+  phone: '0661 23 45 67',
+  country: 'DZ',
+  localityId,
+  line1: '5 rue Larbi Ben M’hidi',
+  ...extra,
+});
+
+/** Gives a merchant a simple way to deliver: its own delivery, anywhere in its country, at this price. */
+export async function addMerchantDelivery(app: FastifyInstance, owner: TestUser, merchantId: string, priceMinor = 0) {
+  const call = caller(app);
+  const method = await call('POST', `/v1/merchants/${merchantId}/shipping/methods`, owner.token, { type: 'merchant_delivery', name: 'Livraison par nos soins' });
+  if (method.statusCode !== 201) throw new Error(`shipping method: ${method.body}`);
+  const id = method.json().data.id as string;
+  const rate = await call('PUT', `/v1/merchants/${merchantId}/shipping/methods/${id}/rates`, owner.token, { zoneId: null, currency: 'DZD', priceMinor, minDays: 1, maxDays: 3 });
+  if (rate.statusCode !== 200) throw new Error(`shipping rate: ${rate.body}`);
+  return id;
+}
+
+/** For each seller of the cart, its cheapest delivery option to this address (what a hurried customer picks). */
+export async function cheapestDelivery(app: FastifyInstance, lines: { offerId: string; quantity: number }[], address: { country: string; localityId?: string }) {
+  const res = await app.inject({ method: 'POST', url: '/v1/stores/mb-parfum/delivery-options', payload: { lines, country: address.country, localityId: address.localityId } });
+  if (res.statusCode !== 200) throw new Error(`delivery options: ${res.body}`);
+  return (res.json().data.sellers as { merchantId: string; options: { methodId: string }[] }[])
+    .filter((seller) => seller.options.length)
+    .map((seller) => ({ merchantId: seller.merchantId, methodId: seller.options[0]!.methodId }));
 }

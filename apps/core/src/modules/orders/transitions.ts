@@ -16,14 +16,16 @@ export type OrderActorType = 'customer' | 'merchant' | 'platform' | 'system';
 
 const ALL: OrderActorType[] = ['customer', 'merchant', 'platform', 'system'];
 const STAFF: OrderActorType[] = ['merchant', 'platform'];
+/** Parcel moves reported by a courier integration also move the order ('system'). */
+const FULFILLMENT: OrderActorType[] = ['merchant', 'platform', 'system'];
 /** Refunds happen only through the refund flow (Payment Service), started by an administrator. */
 const REFUND: OrderActorType[] = ['platform', 'system'];
 
 export const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderStatus, OrderActorType[]>>> = {
   new: { processing: STAFF, cancelled: ALL },
-  processing: { preparing: STAFF, cancelled: ALL },
-  preparing: { shipping: STAFF, cancelled: STAFF },
-  shipping: { delivered: STAFF, returned: STAFF },
+  processing: { preparing: FULFILLMENT, cancelled: ALL },
+  preparing: { shipping: FULFILLMENT, cancelled: STAFF },
+  shipping: { delivered: FULFILLMENT, returned: STAFF },
   delivered: { returned: STAFF },
   // Money movements belong to the platform: merchants can never mark an order refunded.
   returned: { refunded: REFUND },

@@ -20,6 +20,8 @@ const envSchema = z.object({
   PAYMENTS_EVENTS_SECRET: z.string().min(32),
   /** Customer-facing store; customers come back here after paying online. */
   STOREFRONT_URL: z.string().url().default('http://localhost:5174'),
+  /** Development only: registers the fake "sandbox" courier API (refused in production). */
+  COURIER_SANDBOX: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
 

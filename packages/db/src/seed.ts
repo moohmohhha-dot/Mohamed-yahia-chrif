@@ -111,6 +111,7 @@ export async function seed(db: Database): Promise<void> {
       .values([
         { key: 'checkout.cash_on_delivery', description: 'Cash on delivery at checkout', enabledByDefault: true },
         { key: 'checkout.online_payment', description: 'Online card payment at checkout', enabledByDefault: false },
+        { key: 'shipping.pickup_points', description: 'Delivery to pickup points / courier desks', enabledByDefault: false },
       ])
       .onConflictDoNothing();
 
@@ -161,6 +162,28 @@ export async function seed(db: Database): Promise<void> {
       .values({ merchantId: merchant.id, code: 'MAIN', name: 'Entrepôt principal', country: 'DZ', isDefault: true })
       .returning();
     if (!location) throw new Error('Failed to create location');
+
+    // Development data: how the house merchant delivers (example prices, not real courier tariffs).
+    const [algiers] = await tx.insert(s.shippingZones).values({ merchantId: merchant.id, name: 'Alger', country: 'DZ' }).returning();
+    await tx.insert(s.shippingZoneAreas).values({ zoneId: algiers!.id, areaId: 'DZ-16' });
+    const [courier] = await tx
+      .insert(s.shippingMethods)
+      .values({ merchantId: merchant.id, type: 'courier', name: 'Yalidine — livraison à domicile', courierCode: 'yalidine' })
+      .returning();
+    const [pickup] = await tx
+      .insert(s.shippingMethods)
+      .values({
+        merchantId: merchant.id,
+        type: 'local_pickup',
+        name: 'Retrait en boutique',
+        pickupLocation: { areaId: 'DZ-16-C-alger-centre', address: '12 rue Didouche Mourad, Alger Centre', hours: 'Sam–Jeu 10:00–19:00' },
+      })
+      .returning();
+    await tx.insert(s.shippingRates).values([
+      { methodId: courier!.id, zoneId: algiers!.id, currency: 'DZD', priceMinor: 40000n, freeAboveMinor: 1500000n, minDays: 1, maxDays: 2 },
+      { methodId: courier!.id, zoneId: null, currency: 'DZD', priceMinor: 70000n, freeAboveMinor: 1500000n, minDays: 2, maxDays: 5 },
+      { methodId: pickup!.id, zoneId: null, currency: 'DZD', priceMinor: 0n, minDays: 0, maxDays: 1 },
+    ]);
 
     const [brand] = await tx
       .insert(s.brands)

@@ -2,7 +2,19 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
-import { bearer, buildTestApp, caller, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
+import {
+  addMerchantDelivery,
+  bearer,
+  buildTestApp,
+  caller,
+  cheapestDelivery,
+  dzAddress,
+  registerUser,
+  testDatabaseUrl,
+  uniqueSlug,
+  verifyMerchantViaApi,
+  type TestUser,
+} from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -19,21 +31,24 @@ let productId: string;
 let offer: { id: string; sku: string };
 let mbOfferId: string; // the seeded MB Parfum offer for Oud Royal 50 ml
 
-const address = {
-  fullName: 'Yacine Meziane',
-  phone: '+213661234567',
-  line1: '5 rue Larbi Ben M’hidi',
-  city: 'Oran',
-  region: 'Oran',
-  country: 'DZ',
-};
-const checkout = (user: TestUser, lines: { offerId: string; quantity: number }[], key: string | null = randomUUID(), extra = {}) =>
-  app.inject({
+const address = dzAddress('DZ-31-C-oran', { phone: '+213661234567' });
+/** The address as the server stores it: Commune, Daïra and Wilaya filled from the Commune id. */
+const storedAddress = { fullName: address.fullName, phone: '+213661234567', cityId: 'DZ-31-C-oran', city: 'Oran', regionId: 'DZ-31', region: 'Oran', line1: address.line1 };
+const checkout = async (user: TestUser, lines: { offerId: string; quantity: number }[], key: string | null = randomUUID(), extra = {}) => {
+  const delivery = await cheapestDelivery(app, lines, address);
+  return app.inject({
     method: 'POST',
     url: '/v1/stores/mb-parfum/orders',
     headers: { ...bearer(user.token), ...(key ? { 'idempotency-key': key } : {}) },
-    payload: { lines, paymentMethod: 'cash_on_delivery', shippingAddress: address, ...extra },
+    payload: {
+      lines,
+      paymentMethod: 'cash_on_delivery',
+      shippingAddress: address,
+      delivery: delivery.length ? delivery : [{ merchantId: randomUUID(), methodId: randomUUID() }],
+      ...extra,
+    },
   });
+};
 const stock = async (offerId: string) => {
   const [o] = await db.select().from(s.offers).where(eq(s.offers.id, offerId));
   return { onHand: o!.onHandQuantity, reserved: o!.reservedQuantity, available: o!.availableQuantity };
@@ -68,6 +83,7 @@ beforeAll(async () => {
   await verifyMerchantViaApi(app, owner, admin, merchantId);
   await call('PUT', `/v1/admin/stores/mb-parfum/merchants/${merchantId}`, admin.token, { commissionBps: 1200 });
   await call('PUT', `/v1/merchants/${merchantId}/staff`, owner.token, { email: staff.email, role: 'staff' });
+  await addMerchantDelivery(app, owner, merchantId);
 
   const pslug = uniqueSlug('ord');
   productId = (
@@ -104,7 +120,12 @@ describe('placing an order', () => {
       method: 'POST',
       url: '/v1/stores/mb-parfum/orders',
       headers: { ...bearer(customer.token), 'idempotency-key': randomUUID() },
-      payload: { lines: [{ offerId: offer.id, quantity: 1 }], paymentMethod: 'cash_on_delivery', shippingAddress: { ...address, country: 'FR' } },
+      payload: {
+        lines: [{ offerId: offer.id, quantity: 1 }],
+        paymentMethod: 'cash_on_delivery',
+        shippingAddress: { ...address, country: 'FR' },
+        delivery: [{ merchantId, methodId: randomUUID() }],
+      },
     });
     expect(abroad.json().error.code).toBe('COUNTRY_NOT_SERVED');
 
@@ -141,7 +162,9 @@ describe('placing an order', () => {
       shippingMinor: 0,
       totalMinor: 700000,
       paymentMethod: 'cash_on_delivery',
-      shippingAddress: address,
+      shippingAddress: storedAddress,
+      delivery: { type: 'merchant_delivery', name: 'Livraison par nos soins' },
+      shipment: null,
       lines: [{ sku: offer.sku, quantity: 2, unitPriceMinor: 350000, lineTotalMinor: 700000, productNames: { ar: 'ورد الطائف', fr: 'Rose de Taïf' } }],
       allowedTransitions: [{ to: 'cancelled', reasonRequired: false }],
     });
@@ -189,7 +212,7 @@ describe('placing an order', () => {
       expect(list.map((o: any) => o.id)).toContain(orderA.id);
       expect(list.every((o: any) => o.merchantId === merchantId)).toBe(true);
       const detail = (await call('GET', mUrl(orderA.id), staff.token)).json().data;
-      expect(detail).toMatchObject({ commissionBps: 1200, shippingAddress: { phone: address.phone } });
+      expect(detail).toMatchObject({ commissionBps: 1200, shippingAddress: { phone: '+213661234567' } });
       expect(detail.allowedTransitions.map((t: any) => t.to)).toEqual(['processing', 'cancelled']);
     });
 

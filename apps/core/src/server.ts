@@ -7,6 +7,7 @@ import { releaseMaturedBalances } from './modules/finance/index.js';
 import { loadConfig } from './config.js';
 import { createHttpPaymentsClient } from './modules/payments/index.js';
 import { createLocalStorage, createLogMessageSender, createSecretBox } from './modules/platform/index.js';
+import { createSandboxCourier, type CourierRegistry } from './modules/shipping/index.js';
 
 const config = loadConfig();
 if (config.NODE_ENV === 'production') {
@@ -21,6 +22,8 @@ const services = {
   payments: createHttpPaymentsClient({ baseUrl: config.PAYMENTS_URL, token: config.PAYMENTS_SERVICE_TOKEN }),
   paymentEventsSecret: config.PAYMENTS_EVENTS_SECRET,
   storefrontUrl: config.STOREFRONT_URL,
+  // Courier API integrations. None is real yet: couriers are used with hand-entered tracking (docs/SHIPPING.md).
+  couriers: (config.COURIER_SANDBOX ? { sandbox: createSandboxCourier() } : {}) as CourierRegistry,
 };
 const app = buildApp(db, services, {
   logger: { level: config.LOG_LEVEL },

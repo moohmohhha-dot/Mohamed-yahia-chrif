@@ -3,7 +3,19 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
 import { releaseMaturedBalances } from '../src/modules/finance/index.js';
-import { bearer, buildTestApp, caller, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
+import {
+  addMerchantDelivery,
+  bearer,
+  buildTestApp,
+  caller,
+  cheapestDelivery,
+  dzAddress,
+  registerUser,
+  testDatabaseUrl,
+  uniqueSlug,
+  verifyMerchantViaApi,
+  type TestUser,
+} from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -20,13 +32,13 @@ let offerId: string;
 let storeId: string;
 
 const DZD = (dinars: number) => dinars * 100; // minor units (centimes)
-const address = { fullName: 'Sara Ait', phone: '+213661000111', line1: '9 rue Hassiba', city: 'Blida', region: 'Blida', country: 'DZ' };
+const address = dzAddress('DZ-09-C-blida', { fullName: 'Sara Ait', phone: '+213661000111', line1: '9 rue Hassiba' });
 const placeOrder = async (paymentMethod: 'online' | 'cash_on_delivery', quantity = 1) => {
   const res = await app.inject({
     method: 'POST',
     url: '/v1/stores/mb-parfum/orders',
     headers: { ...bearer(customer.token), 'idempotency-key': randomUUID() },
-    payload: { lines: [{ offerId, quantity }], paymentMethod, shippingAddress: address },
+    payload: { lines: [{ offerId, quantity }], paymentMethod, shippingAddress: address, delivery: await cheapestDelivery(app, [{ offerId, quantity }], address) },
   });
   expect(res.statusCode).toBe(201);
   return res.json().data as { checkoutId: string; orders: any[]; payment: any };
@@ -39,8 +51,11 @@ const deliver = async (orderId: string) => {
   }
 };
 const balance = async () => (await call('GET', `/v1/merchants/${merchantId}/finance/balance`, owner.token)).json().data.find((b: any) => b.currency === 'DZD');
-const platform = async (purpose: string) =>
+const platformNow = async (purpose: string): Promise<number> =>
   (await call('GET', '/v1/admin/finance/trial-balance', admin.token)).json().data.platformAccounts.find((a: any) => a.purpose === purpose && a.currency === 'DZD')?.balanceMinor ?? 0;
+/** Platform balances are shared by every test file: measure what this file's orders changed. */
+const platformAtStart: Record<string, number> = {};
+const platform = async (purpose: string) => (await platformNow(purpose)) - (platformAtStart[purpose] ?? 0);
 const refund = (orderId: string, amountMinor: number, extra: object = {}) =>
   app.inject({ method: 'POST', url: `/v1/admin/orders/${orderId}/refunds`, headers: { ...bearer(admin.token), 'idempotency-key': randomUUID() }, payload: { amountMinor, reason: 'Retour partiel', ...extra } });
 const payOnline = async (data: { payment: any }) => {
@@ -69,6 +84,7 @@ beforeAll(async () => {
   // No merchant-specific rate: the platform rule (8 %) applies.
   await call('PUT', `/v1/admin/stores/mb-parfum/merchants/${merchantId}`, admin.token, { commissionBps: null });
   await call('PUT', `/v1/merchants/${merchantId}/staff`, owner.token, { email: staff.email, role: 'staff' });
+  await addMerchantDelivery(app, owner, merchantId);
   const pslug = uniqueSlug('fin');
   productId = (
     await call('POST', `/v1/merchants/${merchantId}/products`, owner.token, {
@@ -83,6 +99,11 @@ beforeAll(async () => {
   offerId = (await call('PUT', `/v1/merchants/${merchantId}/offers`, owner.token, { variantId, stockQuantity: 50, prices: [{ currency: 'DZD', amountMinor: DZD(10_000) }] })).json().data.id;
   storeId = (await db.select().from(s.stores).where(eq(s.stores.slug, 'mb-parfum')))[0]!.id;
   await db.insert(s.featureFlagOverrides).values({ flagKey: 'checkout.online_payment', storeId, enabled: true }).onConflictDoNothing();
+  // Other test files' orders may have matured: release them now so this file counts only its own.
+  await releaseMaturedBalances(db, inEightDays());
+  for (const purpose of ['provider_clearing', 'order_funds_held', 'commission_revenue', 'provider_fees_expense', 'bank']) {
+    platformAtStart[purpose] = await platformNow(purpose);
+  }
 });
 
 afterAll(async () => {
