@@ -72,6 +72,9 @@ importers:
         specifier: ^4.6.5
         version: 4.6.5
     devDependencies:
+      '@aruma/payments':
+        specifier: workspace:*
+        version: link:../payments
       '@types/node':
         specifier: ^22.20.4
         version: 22.20.4

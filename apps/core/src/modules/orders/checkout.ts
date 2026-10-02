@@ -15,7 +15,7 @@ import { getActiveStore, resolveCurrency } from '../stores/index.js';
 export type CheckoutInput = {
   lines: { offerId: string; quantity: number }[];
   currency?: string;
-  paymentMethod: 'cash_on_delivery';
+  paymentMethod: 'cash_on_delivery' | 'online';
   shippingAddress: typeof s.orders.$inferInsert.shippingAddress;
   customerNote?: string;
 };
@@ -48,9 +48,8 @@ export async function placeOrders(
   const store = await getActiveStore(db, storeSlug);
   const currency = resolveCurrency(store, input.currency);
   const flags = await evaluateFlags(db, store.id);
-  if (input.paymentMethod === 'cash_on_delivery' && !flags['checkout.cash_on_delivery']) {
-    throw badRequest('PAYMENT_METHOD_UNAVAILABLE', 'Cash on delivery is not available in this store');
-  }
+  const flag = input.paymentMethod === 'online' ? 'checkout.online_payment' : 'checkout.cash_on_delivery';
+  if (!flags[flag]) throw badRequest('PAYMENT_METHOD_UNAVAILABLE', `This payment method is not available in this store`);
   const [shipsTo] = await db
     .select()
     .from(s.storeCountries)

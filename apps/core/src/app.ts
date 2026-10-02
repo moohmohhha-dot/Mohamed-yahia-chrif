@@ -7,6 +7,7 @@ import type { Database } from '@aruma/db';
 import { AppError, isUniqueViolation } from './shared/errors.js';
 import { authPlugin } from './modules/identity/index.js';
 import { registerModules } from './modules/index.js';
+import type { PaymentsClient } from './modules/payments/index.js';
 import type { FileStorage, MessageSender, SecretBox } from './modules/platform/index.js';
 
 declare module 'fastify' {
@@ -18,11 +19,24 @@ declare module 'fastify' {
     storage: FileStorage;
     /** Sends SMS and emails. */
     messages: MessageSender;
+    /** The independent Payment Service. */
+    payments: PaymentsClient;
+    /** Verifies events sent by the Payment Service. */
+    paymentEventsSecret: string;
+    /** Where customers return after paying online. */
+    storefrontUrl: string;
   }
 }
 
 /** External services ARUMA CORE depends on, injected so tests and deployments can swap them. */
-export type CoreServices = { secrets: SecretBox; storage: FileStorage; messages: MessageSender };
+export type CoreServices = {
+  secrets: SecretBox;
+  storage: FileStorage;
+  messages: MessageSender;
+  payments: PaymentsClient;
+  paymentEventsSecret: string;
+  storefrontUrl: string;
+};
 
 export type AppOptions = FastifyServerOptions & {
   /** Max login/register attempts per IP per minute. */
@@ -43,6 +57,9 @@ export function buildApp(
   app.decorate('secrets', services.secrets);
   app.decorate('storage', services.storage);
   app.decorate('messages', services.messages);
+  app.decorate('payments', services.payments);
+  app.decorate('paymentEventsSecret', services.paymentEventsSecret);
+  app.decorate('storefrontUrl', services.storefrontUrl);
 
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof AppError) {

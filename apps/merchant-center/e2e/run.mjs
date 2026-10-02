@@ -92,9 +92,28 @@ function check(condition, message) {
 // --- Start servers --------------------------------------------------------------------------------
 console.log('Building UI and starting servers…');
 execSync('npx vite build', { cwd: appDir, stdio: 'ignore' });
+const paymentsToken = randomBytes(32).toString('hex');
+const eventsSecret = randomBytes(32).toString('hex');
+start('npx', ['tsx', 'src/server.ts'], {
+  cwd: join(appDir, '../payments'),
+  env: {
+    ...process.env,
+    PAYMENTS_DATABASE_URL: DATABASE_URL,
+    PORT: '3300',
+    HOST: '127.0.0.1',
+    LOG_LEVEL: 'warn',
+    PAYMENTS_PUBLIC_URL: 'http://127.0.0.1:3300',
+    PAYMENTS_SERVICE_TOKEN: paymentsToken,
+    PAYMENTS_EVENTS_SECRET: eventsSecret,
+    CORE_EVENTS_URL: `${API}/internal/payments/events`,
+  },
+});
 start('npx', ['tsx', 'src/server.ts'], {
   cwd: coreDir,
   env: {
+    PAYMENTS_URL: 'http://127.0.0.1:3300',
+    PAYMENTS_SERVICE_TOKEN: paymentsToken,
+    PAYMENTS_EVENTS_SECRET: eventsSecret,
     ...process.env,
     DATABASE_URL,
     PORT: '3100',
@@ -106,6 +125,7 @@ start('npx', ['tsx', 'src/server.ts'], {
   },
 });
 start('npx', ['vite', 'preview', '--port', '4273', '--strictPort'], { cwd: appDir, env: { ...process.env, ARUMA_API_URL: API } });
+await waitFor('http://127.0.0.1:3300/health');
 await waitFor(`${API}/health`);
 await waitFor(UI);
 

@@ -29,7 +29,7 @@ New ──► Processing ──► Preparing ──► Shipping ──► Delive
 | Preparing | Cancelled | التاجر (مالك/مدير)، ARUMA | إلزامي |
 | Shipping | Delivered | التاجر، ARUMA | — |
 | Shipping / Delivered | Returned | التاجر (مالك/مدير)، ARUMA | إلزامي، مع قرار إعادة البضاعة للبيع |
-| Returned / Cancelled | Refunded | **مدير ARUMA فقط** | إلزامي |
+| Returned / Cancelled | Refunded | **تلقائيًا عند اكتمال الاسترجاع المالي** الذي يطلبه مدير ARUMA ([PAYMENTS.md](PAYMENTS.md)) | إلزامي |
 
 - **قفزات ممنوعة:** لا يمكن مثلًا الانتقال من New إلى Delivered مباشرة.
 - **الإلغاء من الزبون:** ممكن ما دام الطلب New أو Processing فقط.
@@ -79,5 +79,5 @@ New ──► Processing ──► Preparing ──► Shipping ──► Delive
 ## ما يأتي لاحقًا
 - **صفحة المتجر للزبون:** السلة وإتمام الطلب عبر الواجهة. الـAPI جاهز.
 - **أسعار التوصيل حسب الولاية وشركات النقل:** وحدة الشحن.
-- **الدفع الإلكتروني وتحويل الاسترجاع الفعلي:** وحدة الدفع.
+- **الدفع:** إلكتروني أو عند الاستلام، والاسترجاع المالي، عبر خدمة الدفع المستقلة ([PAYMENTS.md](PAYMENTS.md)). ✅ تم
 - **إشعارات SMS للزبون عند كل تغيير حالة:** تُبنى على الحدث `orders.order.status_changed` المسجّل.

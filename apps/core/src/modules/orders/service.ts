@@ -4,13 +4,14 @@ import type { Executor } from '../../shared/db.js';
 import { AppError, badRequest, forbidden, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { consumeStock, receiveReturn, releaseStock } from '../inventory/index.js';
+import type { PaymentsClient } from '../payments/index.js';
 import { requireMembership } from '../merchants/index.js';
 import { audit, recordEvent } from '../platform/index.js';
 import { MERCHANT_ROLES_FOR, nextStatuses, reasonRequired, TRANSITIONS, type OrderActorType, type OrderStatus } from './transitions.js';
 
 type Order = typeof s.orders.$inferSelect;
 /** Who is acting on an order. `merchantId` scopes a merchant actor to its own orders. */
-export type OrderActor = Actor & { type: OrderActorType; userId: string; merchantId?: string };
+export type OrderActor = Actor & { type: OrderActorType; userId: string | null; merchantId?: string };
 
 export type TransitionInput = {
   to: OrderStatus;
@@ -18,12 +19,16 @@ export type TransitionInput = {
   note?: string;
   /** Returns only: put the goods back on sale (true) or not (false, e.g. damaged). */
   restock?: boolean;
+  /** Set by the refund flow: the only way an order becomes "refunded". */
+  viaRefund?: boolean;
 };
+
+export type OrderDeps = { payments: PaymentsClient };
 
 /** Loads an order the actor may see; anyone else gets 404 (no hint that the order exists). */
 async function loadForActor(db: Executor, actor: OrderActor, orderId: string, lock = false): Promise<Order> {
   const scope: SQL[] = [eq(s.orders.id, orderId)];
-  if (actor.type === 'customer') scope.push(eq(s.orders.customerUserId, actor.userId));
+  if (actor.type === 'customer') scope.push(eq(s.orders.customerUserId, actor.userId!));
   if (actor.type === 'merchant') scope.push(eq(s.orders.merchantId, actor.merchantId!));
   const query = db.select().from(s.orders).where(and(...scope));
   const [order] = lock ? await query.for('update') : await query;
@@ -35,10 +40,10 @@ async function loadForActor(db: Executor, actor: OrderActor, orderId: string, lo
  * Moves an order to a new status: checks the rule table and the actor's rights, applies the stock
  * consequence, and records the change (who, when, from, to, why) — all in one transaction.
  */
-export async function transitionOrder(db: Database, actor: OrderActor, orderId: string, input: TransitionInput) {
-  return db.transaction(async (tx) => {
+export async function transitionOrder(db: Database, deps: OrderDeps, actor: OrderActor, orderId: string, input: TransitionInput) {
+  const result = await db.transaction(async (tx) => {
     let merchantRole: 'owner' | 'manager' | 'staff' | null = null;
-    if (actor.type === 'merchant') merchantRole = await requireMembership(tx, actor.merchantId!, actor.userId);
+    if (actor.type === 'merchant') merchantRole = await requireMembership(tx, actor.merchantId!, actor.userId!);
     const order = await loadForActor(tx, actor, orderId, true);
     const from = order.status;
 
@@ -50,6 +55,12 @@ export async function transitionOrder(db: Database, actor: OrderActor, orderId: 
     if (merchantRole && roles && !roles.includes(merchantRole)) throw forbidden(`Requires role: ${roles.join(' or ')}`);
     if (reasonRequired(input.to, actor.type) && !input.reason?.trim()) {
       throw badRequest('REASON_REQUIRED', `A reason is required to mark an order ${input.to}`);
+    }
+    if (input.to === 'refunded' && !input.viaRefund) {
+      throw new AppError(409, 'USE_REFUND', 'Orders are refunded through the refund flow, which returns the money');
+    }
+    if (input.to === 'processing' && order.paymentMethod === 'online' && order.paymentStatus !== 'successful') {
+      throw new AppError(409, 'PAYMENT_NOT_COMPLETED', 'This order is paid online and the payment is not complete yet');
     }
     if (input.to === 'returned' && input.restock === undefined) {
       throw badRequest('RESTOCK_REQUIRED', 'Say whether the returned goods go back on sale (restock: true or false)');
@@ -71,10 +82,25 @@ export async function transitionOrder(db: Database, actor: OrderActor, orderId: 
       });
     }
 
+    // Cash on delivery: delivering means the money was collected, recorded in the Payment Service.
+    let payment: Partial<typeof s.orders.$inferInsert> = {};
+    if (input.to === 'delivered' && order.paymentMethod === 'cash_on_delivery' && order.paymentStatus !== 'successful') {
+      const intent = await deps.payments.createIntent(`order:${order.id}`, {
+        referenceType: 'order',
+        referenceId: order.id,
+        method: 'cash_on_delivery',
+        amountMinor: Number(order.totalMinor),
+        currency: order.currency,
+        description: `Order ${order.number}`,
+      });
+      await deps.payments.cashCollected(intent.id, Number(order.totalMinor), `${actor.type}:${actor.userId ?? 'system'}`);
+      payment = { paymentStatus: 'successful', paymentIntentId: intent.id };
+    }
+
     const now = new Date();
     const [updated] = await tx
       .update(s.orders)
-      .set({ status: input.to, statusChangedAt: now })
+      .set({ status: input.to, statusChangedAt: now, ...payment })
       .where(eq(s.orders.id, order.id))
       .returning();
     await tx.insert(s.orderStatusHistory).values({
@@ -101,13 +127,31 @@ export async function transitionOrder(db: Database, actor: OrderActor, orderId: 
     });
     return updated!;
   });
+
+  // An online checkout is paid as a whole: cancelling an unpaid order cancels the whole checkout and its payment.
+  if (input.to === 'cancelled' && result.paymentMethod === 'online' && result.paymentStatus !== 'successful') {
+    const siblings = await db
+      .select({ id: s.orders.id, status: s.orders.status })
+      .from(s.orders)
+      .where(and(eq(s.orders.checkoutId, result.checkoutId), inArray(s.orders.status, ['new', 'processing'])));
+    for (const sibling of siblings) {
+      await transitionOrder(db, deps, { userId: null, ip: null, type: 'system' }, sibling.id, {
+        to: 'cancelled',
+        reason: 'The checkout was cancelled before payment',
+      });
+    }
+    if (result.paymentIntentId) {
+      await deps.payments.cancel(result.paymentIntentId, input.reason ?? 'Order cancelled').catch(() => undefined);
+    }
+  }
+  return result;
 }
 
 const money = (v: bigint) => Number(v);
 
 /** Full order: lines, address, and the complete status history with who did what. */
 export async function getOrder(db: Database, actor: OrderActor, orderId: string) {
-  if (actor.type === 'merchant') await requireMembership(db, actor.merchantId!, actor.userId);
+  if (actor.type === 'merchant') await requireMembership(db, actor.merchantId!, actor.userId!);
   const order = await loadForActor(db, actor, orderId);
   const lines = await db.select().from(s.orderLines).where(eq(s.orderLines.orderId, order.id));
   const history = await db
@@ -131,6 +175,9 @@ export async function getOrder(db: Database, actor: OrderActor, orderId: string)
   return {
     ...summary,
     ...(actor.type === 'customer' ? {} : { commissionBps }),
+    paymentStatus: order.paymentStatus,
+    refundedMinor: Number(order.refundedMinor),
+    paymentIntentId: actor.type === 'customer' ? undefined : order.paymentIntentId,
     merchant: merchant!,
     shippingAddress: order.shippingAddress,
     customerNote: order.customerNote,
@@ -146,7 +193,9 @@ export async function getOrder(db: Database, actor: OrderActor, orderId: string)
     })),
     // The customer sees who changed the status by role, not staff names.
     history: history.map((h) => ({ ...h, actorName: actor.type === 'customer' && h.actorType !== 'customer' ? null : h.actorName })),
-    allowedTransitions: nextStatuses(order.status, actor.type).map((to) => ({ to, reasonRequired: reasonRequired(to, actor.type) })),
+    allowedTransitions: nextStatuses(order.status, actor.type)
+      .filter((to) => to !== 'refunded') // refunds have their own flow
+      .map((to) => ({ to, reasonRequired: reasonRequired(to, actor.type) })),
   };
 }
 
@@ -164,6 +213,7 @@ function serializeOrder(o: Order) {
     // The commission is ARUMA-internal: merchants see it (it is their contract), customers do not.
     commissionBps: o.commissionBps,
     paymentMethod: o.paymentMethod,
+    paymentStatus: o.paymentStatus,
     placedAt: o.placedAt,
     statusChangedAt: o.statusChangedAt,
   };

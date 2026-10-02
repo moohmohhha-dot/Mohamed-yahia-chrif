@@ -379,6 +379,17 @@ export const en = {
   'err.INVALID_TRANSITION': "This step is not possible from the current status.",
   'err.REASON_REQUIRED': "A reason is required.",
   'err.RESTOCK_REQUIRED': "Say whether the goods go back on sale.",
+  'orders.payment.online': "Online payment (CIB / EDAHABIA)",
+  'orders.paymentStatus': "Payment",
+  'orders.refunded': "Refunded to the customer",
+  'orders.awaitingPayment': "Waiting for the customer’s online payment: you can confirm the order once it is paid.",
+  'paymentStatus.pending': "Pending",
+  'paymentStatus.successful': "Paid",
+  'paymentStatus.failed': "Failed",
+  'paymentStatus.cancelled': "Cancelled",
+  'paymentStatus.refunded': "Refunded",
+  'err.PAYMENT_NOT_COMPLETED': "The customer has not paid yet.",
+  'err.PAYMENTS_UNAVAILABLE': "The payment service is unavailable; try again in a moment.",
 };
 
 export type Messages = typeof en;

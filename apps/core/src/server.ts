@@ -1,7 +1,10 @@
 import { createDb } from '@aruma/db';
 import pino from 'pino';
 import { buildApp } from './app.js';
+import { expireUnpaidCheckouts } from './modules/orders/payments.js';
+import { releaseExpiredReservations } from './modules/inventory/index.js';
 import { loadConfig } from './config.js';
+import { createHttpPaymentsClient } from './modules/payments/index.js';
 import { createLocalStorage, createLogMessageSender, createSecretBox } from './modules/platform/index.js';
 
 const config = loadConfig();
@@ -14,6 +17,9 @@ const services = {
   secrets: createSecretBox(config.DATA_ENCRYPTION_KEY),
   storage: createLocalStorage(config.STORAGE_DIR),
   messages: createLogMessageSender(pino({ level: config.LOG_LEVEL })),
+  payments: createHttpPaymentsClient({ baseUrl: config.PAYMENTS_URL, token: config.PAYMENTS_SERVICE_TOKEN }),
+  paymentEventsSecret: config.PAYMENTS_EVENTS_SECRET,
+  storefrontUrl: config.STOREFRONT_URL,
 };
 const app = buildApp(db, services, {
   logger: { level: config.LOG_LEVEL },
@@ -21,7 +27,14 @@ const app = buildApp(db, services, {
   authRateLimitMax: config.AUTH_RATE_LIMIT_MAX,
 });
 
+// Background jobs: unpaid online checkouts expire after an hour; expired stock holds are released.
+const jobs = setInterval(() => {
+  expireUnpaidCheckouts(db, { payments: services.payments }, 60).catch((e) => app.log.error(e, 'checkout expiry failed'));
+  releaseExpiredReservations(db).catch((e) => app.log.error(e, 'reservation expiry failed'));
+}, 5 * 60_000);
+
 const shutdown = async () => {
+  clearInterval(jobs);
   await app.close();
   await pool.end();
   process.exit(0);

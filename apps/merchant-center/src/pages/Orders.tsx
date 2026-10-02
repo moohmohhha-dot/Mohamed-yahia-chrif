@@ -19,10 +19,19 @@ const tone: Record<Status, string> = {
   refunded: 'muted',
 };
 
+type PaymentStatus = 'pending' | 'successful' | 'failed' | 'cancelled' | 'refunded';
+const paymentTone: Record<PaymentStatus, string> = { pending: 'warn', successful: 'good', failed: 'bad', cancelled: 'muted', refunded: 'muted' };
+function PaymentBadge({ status }: { status: PaymentStatus }) {
+  const { t } = useI18n();
+  return <span className={`badge badge-${paymentTone[status]}`}>{t(`paymentStatus.${status}` as MessageKey)}</span>;
+}
+
 type OrderSummary = {
   id: string;
   number: string;
   status: Status;
+  paymentMethod: 'cash_on_delivery' | 'online';
+  paymentStatus: PaymentStatus;
   currency: string;
   totalMinor: number;
   items: number;
@@ -35,7 +44,7 @@ type OrderDetail = OrderSummary & {
   subtotalMinor: number;
   shippingMinor: number;
   commissionBps: number;
-  paymentMethod: string;
+  refundedMinor: number;
   customerNote: string | null;
   shippingAddress: { fullName: string; phone: string; line1: string; line2?: string; city: string; region: string; postalCode?: string; country: string };
   lines: { id: string; sku: string; productNames: Record<string, string>; options: Record<string, unknown>; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
@@ -87,6 +96,7 @@ export function OrdersPage() {
                 <th className="num">{t('orders.items')}</th>
                 <th className="num">{t('orders.total')}</th>
                 <th>{t('common.status')}</th>
+                <th>{t('orders.paymentStatus')}</th>
               </tr>
             </thead>
             <tbody>
@@ -105,6 +115,9 @@ export function OrdersPage() {
                   <td className="num">{money.format(o.totalMinor, o.currency, locale)}</td>
                   <td>
                     <OrderStatusBadge status={o.status} />
+                  </td>
+                  <td>
+                    <PaymentBadge status={o.paymentStatus} />
                   </td>
                 </tr>
               ))}
@@ -137,6 +150,9 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
         </button>
       </div>
 
+      {o.paymentMethod === 'online' && o.paymentStatus !== 'successful' && o.status === 'new' && (
+        <div className="alert alert-warn">{t('orders.awaitingPayment')}</div>
+      )}
       <Actions order={o} url={url} onDone={() => void order.reload()} />
 
       <div className="form-grid">
@@ -157,7 +173,7 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
             </p>
           )}
         </Card>
-        <Card title={t(`orders.payment.${o.paymentMethod}` as MessageKey)}>
+        <Card title={t(`orders.payment.${o.paymentMethod}` as MessageKey)} actions={<PaymentBadge status={o.paymentStatus} />}>
           <table>
             <tbody>
               <tr>
@@ -176,6 +192,12 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
                   <strong>{fmt(o.totalMinor)}</strong>
                 </td>
               </tr>
+              {o.refundedMinor > 0 && (
+                <tr>
+                  <td>{t('orders.refunded')}</td>
+                  <td className="num">−{fmt(o.refundedMinor)}</td>
+                </tr>
+              )}
               <tr>
                 <td className="muted small">{t('orders.commission')}</td>
                 <td className="num muted small">{(o.commissionBps / 100).toLocaleString(locale)} %</td>

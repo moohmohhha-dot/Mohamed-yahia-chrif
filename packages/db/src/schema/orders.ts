@@ -26,7 +26,9 @@ export const orderStatus = pgEnum('order_status', [
   'returned', // refused at delivery or returned after it
   'refunded', // money given back (platform only)
 ]);
-export const paymentMethod = pgEnum('payment_method', ['cash_on_delivery']);
+export const paymentMethod = pgEnum('payment_method', ['cash_on_delivery', 'online']);
+/** Mirrors the Payment Service's status for this order's money (kept in sync by signed payment events). */
+export const orderPaymentStatus = pgEnum('order_payment_status', ['pending', 'successful', 'failed', 'cancelled', 'refunded']);
 export const orderActorType = pgEnum('order_actor_type', ['customer', 'merchant', 'platform', 'system']);
 
 /** One checkout submission; makes "place order" safe to retry (Idempotency-Key). */
@@ -85,6 +87,11 @@ export const orders = pgTable(
     /** ARUMA commission at the time of the order (finance uses this, not today's rate). */
     commissionBps: integer('commission_bps').notNull(),
     paymentMethod: paymentMethod('payment_method').notNull(),
+    paymentStatus: orderPaymentStatus('payment_status').notNull().default('pending'),
+    /** Id of the payment in the Payment Service: one per checkout for online, one per order for cash. */
+    paymentIntentId: varchar('payment_intent_id', { length: 64 }),
+    /** Money given back for this order so far (partial or full refunds). */
+    refundedMinor: bigint('refunded_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     shippingAddress: jsonb('shipping_address').$type<ShippingAddress>().notNull(),
     customerNote: text('customer_note'),
     placedAt: timestamp('placed_at', { withTimezone: true }).notNull().defaultNow(),
@@ -95,6 +102,7 @@ export const orders = pgTable(
     index('orders_customer_idx').on(t.customerUserId, t.placedAt),
     index('orders_checkout_idx').on(t.checkoutId),
     check('orders_total_consistent', sql`${t.totalMinor} = ${t.subtotalMinor} + ${t.shippingMinor}`),
+    check('orders_refund_bounds', sql`${t.refundedMinor} >= 0 and ${t.refundedMinor} <= ${t.totalMinor}`),
   ],
 );
 
@@ -144,3 +152,25 @@ export const orderStatusHistory = pgTable(
   },
   (t) => [index('order_status_history_order_idx').on(t.orderId, t.createdAt)],
 );
+
+/** Refunds applied to an order, one row per Payment Service refund (so a refund is never counted twice). */
+export const orderRefunds = pgTable(
+  'order_refunds',
+  {
+    paymentRefundId: varchar('payment_refund_id', { length: 64 }).primaryKey(),
+    orderId: uuid('order_id')
+      .notNull()
+      .references(() => orders.id, { onDelete: 'restrict' }),
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    reason: text('reason'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('order_refunds_order_idx').on(t.orderId)],
+);
+
+/** Payment Service events already handled (de-duplication of retried deliveries). */
+export const receivedPaymentEvents = pgTable('received_payment_events', {
+  eventId: varchar('event_id', { length: 64 }).primaryKey(),
+  type: varchar('type', { length: 64 }).notNull(),
+  receivedAt: timestamp('received_at', { withTimezone: true }).notNull().defaultNow(),
+});

@@ -218,13 +218,20 @@ describe('placing an order', () => {
       expect(await stock(offer.id)).toEqual({ onHand: 5, reserved: 0, available: 5 });
     });
 
-    it('never lets a merchant refund: money is the platform’s job', async () => {
+    it('never lets a merchant refund: money goes back only through the refund flow', async () => {
       expect((await move(owner, orderA.id, { to: 'refunded', reason: 'x' })).statusCode).toBe(403);
-      expect((await call('POST', `/v1/admin/orders/${orderA.id}/status`, support.token, { to: 'refunded', reason: 'x' })).json().error.code).toBe('ADMIN_ONLY');
-      expect((await call('POST', `/v1/admin/orders/${orderA.id}/status`, admin.token, { to: 'refunded' })).json().error.code).toBe('REASON_REQUIRED');
-      const refunded = await call('POST', `/v1/admin/orders/${orderA.id}/status`, admin.token, { to: 'refunded', reason: 'Remboursé en espèces au point relais' });
-      expect(refunded.json().data.status).toBe('refunded');
-      expect(refunded.json().data.allowedTransitions).toEqual([]);
+      // Even an administrator cannot just mark it refunded: the money must actually be returned.
+      expect((await call('POST', `/v1/admin/orders/${orderA.id}/status`, admin.token, { to: 'refunded', reason: 'x' })).json().error.code).toBe('USE_REFUND');
+      const refundUrl = `/v1/admin/orders/${orderA.id}/refunds`;
+      const refund = (user: TestUser, body: object) =>
+        app.inject({ method: 'POST', url: refundUrl, headers: { ...bearer(user.token), 'idempotency-key': randomUUID() }, payload: body });
+      expect((await refund(support, { amountMinor: 700000, reason: 'Retour' })).statusCode).toBe(403);
+      // Cash on delivery is refunded outside ARUMA: the proof is required.
+      expect((await refund(admin, { amountMinor: 700000, reason: 'Retour accepté' })).json().error.code).toBe('EXTERNAL_REFERENCE_REQUIRED');
+      expect((await refund(admin, { amountMinor: 700001, reason: 'Retour accepté', externalReference: 'x' })).json().error.code).toBe('REFUND_EXCEEDS_ORDER');
+      const done = await refund(admin, { amountMinor: 700000, reason: 'Remboursé en espèces au point relais', externalReference: 'RECU-0042' });
+      expect(done.json().data).toMatchObject({ status: 'refunded', paymentStatus: 'refunded', refundedMinor: 700000 });
+      expect(done.json().data.allowedTransitions).toEqual([]);
     });
 
     it('records every change: who, when, from, to, why', async () => {

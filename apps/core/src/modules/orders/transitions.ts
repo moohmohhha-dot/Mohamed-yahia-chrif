@@ -11,11 +11,13 @@
 import type { schema } from '@aruma/db';
 
 export type OrderStatus = (typeof schema.orderStatus.enumValues)[number];
-export type OrderActorType = 'customer' | 'merchant' | 'platform';
+/** 'system': automatic actions (e.g. an unpaid online checkout expires). */
+export type OrderActorType = 'customer' | 'merchant' | 'platform' | 'system';
 
-const ALL: OrderActorType[] = ['customer', 'merchant', 'platform'];
+const ALL: OrderActorType[] = ['customer', 'merchant', 'platform', 'system'];
 const STAFF: OrderActorType[] = ['merchant', 'platform'];
-const PLATFORM: OrderActorType[] = ['platform'];
+/** Refunds happen only through the refund flow (Payment Service), started by an administrator. */
+const REFUND: OrderActorType[] = ['platform', 'system'];
 
 export const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderStatus, OrderActorType[]>>> = {
   new: { processing: STAFF, cancelled: ALL },
@@ -24,8 +26,8 @@ export const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderStatus, OrderA
   shipping: { delivered: STAFF, returned: STAFF },
   delivered: { returned: STAFF },
   // Money movements belong to the platform: merchants can never mark an order refunded.
-  returned: { refunded: PLATFORM },
-  cancelled: { refunded: PLATFORM },
+  returned: { refunded: REFUND },
+  cancelled: { refunded: REFUND },
   refunded: {},
 };
 

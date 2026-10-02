@@ -4,26 +4,77 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import type { Database } from '@aruma/db';
+import { buildPaymentsApp, createPaymentsDb, createSandboxProvider, deliverEvents } from '@aruma/payments';
 import { buildApp, type AppOptions } from '../src/app.js';
+import { createHttpPaymentsClient } from '../src/modules/payments/index.js';
 import { createLocalStorage, createSecretBox, type OutboundMessage } from '../src/modules/platform/index.js';
 
 export const testDatabaseUrl =
   process.env.TEST_DATABASE_URL ?? 'postgres://aruma:aruma@localhost:5432/aruma_test';
 
-/** App wired with throwaway services: random encryption key, temp storage, and an in-memory message outbox. */
+const PAYMENTS_TOKEN = 'core-test-service-token-0123456789abcdef';
+const EVENTS_SECRET = 'core-test-events-secret-0123456789abcdef';
+
+/**
+ * The real Payment Service (apps/payments), running in-process with its sandbox provider on the test
+ * database. ARUMA CORE talks to it through its normal HTTP client, and its events come back through the
+ * normal signed endpoint, so tests exercise the same path as production.
+ */
+function buildInProcessPayments() {
+  const { db, pool } = createPaymentsDb(testDatabaseUrl);
+  const sandbox = createSandboxProvider('http://payments.test', 'sandbox-secret');
+  const app = buildPaymentsApp({
+    db,
+    providers: { sandbox },
+    defaultOnlineProvider: 'sandbox',
+    publicBaseUrl: 'http://payments.test',
+    clients: { 'aruma-core': PAYMENTS_TOKEN },
+    sandbox,
+  });
+  const client = createHttpPaymentsClient({
+    baseUrl: 'http://payments.test',
+    token: PAYMENTS_TOKEN,
+    fetch: async (url, init) => {
+      const res = await app.inject({ method: init.method as 'GET', url: url.replace('http://payments.test', ''), headers: init.headers, payload: init.body });
+      return { status: res.statusCode, json: async () => res.json() };
+    },
+  });
+  return { db, pool, app, client };
+}
+
+/** App wired with throwaway services: random encryption key, temp storage, in-memory messages, in-process payments. */
 export function buildTestApp(db: Database, options: AppOptions = {}) {
   const sentMessages: OutboundMessage[] = [];
   const storageDir = mkdtempSync(join(tmpdir(), 'aruma-storage-'));
+  const payments = buildInProcessPayments();
   const app = buildApp(
     db,
     {
       secrets: createSecretBox(randomBytes(32).toString('base64')),
       storage: createLocalStorage(storageDir),
       messages: { send: async (m) => void sentMessages.push(m) },
+      payments: payments.client,
+      paymentEventsSecret: EVENTS_SECRET,
+      storefrontUrl: 'https://mbparfum.test',
     },
     { authRateLimitMax: 1000, ...options },
   );
-  return Object.assign(app, { sentMessages, storageDir });
+  app.addHook('onClose', async () => {
+    await payments.app.close();
+    await payments.pool.end();
+  });
+  /** Delivers the Payment Service's pending events to this app (what its background job does). */
+  const flushPaymentEvents = () =>
+    deliverEvents(payments.db, { 'aruma-core': { url: 'http://core.test/internal/payments/events', secret: EVENTS_SECRET } }, async (_url, body, headers) => {
+      const res = await app.inject({ method: 'POST', url: '/internal/payments/events', payload: body, headers });
+      return { status: res.statusCode };
+    }, new Date(Date.now() + 24 * 3600_000));
+  /** The customer's action on the (sandbox) provider page, e.g. paying. */
+  const payInSandbox = async (redirectUrl: string, outcome: 'paid' | 'failed' | 'cancelled') => {
+    const res = await payments.app.inject({ method: 'POST', url: `${new URL(redirectUrl).pathname}/${outcome}` });
+    if (res.statusCode !== 200) throw new Error(`sandbox ${outcome}: ${res.body}`);
+  };
+  return Object.assign(app, { sentMessages, storageDir, paymentsApp: payments.app, flushPaymentEvents, payInSandbox, eventsSecret: EVENTS_SECRET });
 }
 export type TestApp = ReturnType<typeof buildTestApp>;
 
