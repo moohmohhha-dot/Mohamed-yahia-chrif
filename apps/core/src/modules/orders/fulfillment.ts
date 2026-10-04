@@ -26,6 +26,8 @@ import {
 } from '../shipping/index.js';
 import { applyTransition, loadForActor, shipmentSource, type OrderActor, type OrderDeps } from './service.js';
 import type { OrderStatus } from './transitions.js';
+import type { FailureReason, RefusalReason } from '../cod/index.js';
+import { codAfterParcelUpdate, codBeforeParcelUpdate } from './cod-hooks.js';
 
 const SYSTEM: OrderActor = { type: 'system', userId: null, ip: null };
 
@@ -94,7 +96,16 @@ export async function createOrderShipment(db: Database, deps: OrderDeps, actor: 
   }
 }
 
-export type ShipmentStatusInput = { status: ShipmentStatus; trackingNumber?: string; note?: string; location?: string };
+export type ShipmentStatusInput = {
+  status: ShipmentStatus;
+  trackingNumber?: string;
+  note?: string;
+  location?: string;
+  /** Why a delivery attempt failed (required for cash-on-delivery orders). */
+  reason?: FailureReason;
+  /** Set when the customer refused the parcel at the door. */
+  refusalReason?: RefusalReason;
+};
 type CourierContext = { source: ShipmentSource; occurredAt?: Date; externalEventId?: string; raw?: unknown };
 
 /** Records a parcel update and moves the order accordingly, in one transaction. Returns false for a repeated courier update. */
@@ -116,6 +127,8 @@ export async function updateOrderShipment(
     if (shipment.courierAccountId && source === 'merchant') {
       throw new AppError(409, 'SHIPMENT_TRACKED_BY_COURIER', 'This parcel is tracked by the courier; its status updates arrive automatically');
     }
+    const parcelUpdate = { status: input.status, reason: input.reason, refusalReason: input.refusalReason, note: input.note };
+    await codBeforeParcelUpdate(tx, order, shipment.status, parcelUpdate, source);
     const updated = await recordShipmentStatus(tx, shipment, {
       status: input.status,
       source,
@@ -128,6 +141,7 @@ export async function updateOrderShipment(
       raw: context?.raw,
     });
     if (!updated) return false;
+    await codAfterParcelUpdate(tx, order, shipment.status, updated.status, parcelUpdate, { type: actor.type, userId: actor.userId });
     for (const to of orderStepsFor(order.status, updated.status)) {
       order = await applyTransition(tx, deps, actor, merchantRole, order, { to, fromShipment: true, note: input.note });
     }
@@ -159,7 +173,7 @@ export async function handleCourierWebhook(
       deps,
       SYSTEM,
       shipment.orderId,
-      { status: event.status, note: event.description, location: event.location },
+      { status: event.status, note: event.description, location: event.location, reason: event.failureReason, refusalReason: event.refusalReason },
       { source: 'courier', occurredAt: event.occurredAt, externalEventId: event.externalEventId, raw: event.raw },
     );
     if (done) applied++;

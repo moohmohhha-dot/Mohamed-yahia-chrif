@@ -5,6 +5,8 @@ import { AppError, badRequest, forbidden, notFound } from '../../shared/errors.j
 import type { Actor } from '../../shared/request-context.js';
 import { consumeStock, receiveReturn, releaseStock } from '../inventory/index.js';
 import { postOrderDelivered } from '../finance/index.js';
+import { assertCodConfirmed, codAfterTransition } from './cod-hooks.js';
+import { codRecord, describeCod } from '../cod/index.js';
 import type { PaymentsClient } from '../payments/index.js';
 import { requireMembership, type MerchantRole } from '../merchants/index.js';
 import { audit, recordEvent, type SecretBox } from '../platform/index.js';
@@ -145,6 +147,7 @@ export async function applyTransition(
   if (input.to === 'processing' && order.paymentMethod === 'online' && order.paymentStatus !== 'successful') {
     throw new AppError(409, 'PAYMENT_NOT_COMPLETED', 'This order is paid online and the payment is not complete yet');
   }
+  if (input.to === 'processing') await assertCodConfirmed(tx, order);
   if (input.to === 'returned' && input.restock === undefined) {
     throw badRequest('RESTOCK_REQUIRED', 'Say whether the returned goods go back on sale (restock: true or false)');
   }
@@ -200,6 +203,8 @@ export async function applyTransition(
   });
   // Delivery is when the sale counts: merchant due, ARUMA commission and fee go into the ledger.
   if (input.to === 'delivered') await postOrderDelivered(tx, updated!, now);
+  // Cash on delivery: collected at delivery, or not collected when cancelled or returned unpaid.
+  await codAfterTransition(tx, updated!, input.to, { type: actor.type, userId: actor.userId });
   await audit(tx, actor, {
     action: 'orders.order.status_changed',
     entityType: 'order',
@@ -240,6 +245,8 @@ export async function getOrder(db: Database, actor: OrderActor, orderId: string)
   const [merchant] = await db.select({ name: s.merchants.name, slug: s.merchants.slug }).from(s.merchants).where(eq(s.merchants.id, order.merchantId));
 
   const { commissionBps, ...summary } = serializeOrder(order);
+  const view = actor.type === 'customer' ? 'customer' : actor.type === 'merchant' ? 'merchant' : 'platform';
+  const codRow = await codRecord(db, order.id);
   return {
     ...summary,
     ...(actor.type === 'customer' ? {} : { commissionBps }),
@@ -249,7 +256,8 @@ export async function getOrder(db: Database, actor: OrderActor, orderId: string)
     merchant: merchant!,
     shippingAddress: order.shippingAddress,
     delivery: order.delivery,
-    shipment: await shipmentOfOrder(db, order.id, actor.type === 'customer' ? 'customer' : actor.type === 'merchant' ? 'merchant' : 'platform'),
+    cod: codRow ? await describeCod(db, codRow, view) : null,
+    shipment: await shipmentOfOrder(db, order.id, view),
     customerNote: order.customerNote,
     lines: lines.map((l) => ({
       id: l.id,
@@ -265,6 +273,8 @@ export async function getOrder(db: Database, actor: OrderActor, orderId: string)
     history: history.map((h) => ({ ...h, actorName: actor.type === 'customer' && h.actorType !== 'customer' ? null : h.actorName })),
     allowedTransitions: nextStatuses(order.status, actor.type)
       .filter((to) => to !== 'refunded') // refunds have their own flow
+      // A COD order waiting for the customer's confirmation is confirmed through the call or the SMS code.
+      .filter((to) => !(to === 'processing' && codRow?.confirmationStatus === 'pending'))
       .map((to) => ({ to, reasonRequired: reasonRequired(to, actor.type) })),
   };
 }
@@ -289,6 +299,9 @@ function serializeOrder(o: Order) {
   };
 }
 
+const codSummaryOf = (c: { confirmationStatus: string; risk: { level: string } } | undefined) =>
+  c ? { confirmationStatus: c.confirmationStatus, riskLevel: c.risk.level } : null;
+
 async function listOrders(db: Database, conditions: SQL[], page: number, pageSize: number) {
   const rows = await db
     .select()
@@ -303,8 +316,15 @@ async function listOrders(db: Database, conditions: SQL[], page: number, pageSiz
         .from(s.orderLines)
         .where(inArray(s.orderLines.orderId, rows.map((r) => r.id)))
     : [];
+  const cods = rows.length
+    ? await db
+        .select({ orderId: s.codOrders.orderId, confirmationStatus: s.codOrders.confirmationStatus, risk: s.codOrders.risk })
+        .from(s.codOrders)
+        .where(inArray(s.codOrders.orderId, rows.map((r) => r.id)))
+    : [];
   return rows.map((o) => ({
     ...serializeOrder(o),
+    cod: codSummaryOf(cods.find((c) => c.orderId === o.id)),
     items: counts.filter((c) => c.orderId === o.id).reduce((n, c) => n + c.quantity, 0),
     city: o.shippingAddress.city,
     deliveryType: o.delivery?.type ?? null,
@@ -319,7 +339,8 @@ export function listCustomerOrders(db: Database, userId: string, f: ListFilter) 
   const conditions = [eq(s.orders.customerUserId, userId)];
   if (f.status) conditions.push(eq(s.orders.status, f.status));
   return listOrders(db, conditions, f.page, f.pageSize).then((rows) =>
-    rows.map(({ commissionBps: _c, ...r }) => r),
+    // Customers see whether their order awaits confirmation, never their risk level.
+    rows.map(({ commissionBps: _c, cod, ...r }) => ({ ...r, cod: cod ? { confirmationStatus: cod.confirmationStatus } : null })),
   );
 }
 

@@ -11,6 +11,8 @@ import { getSetting, resolveCommissionBps } from '../finance/index.js';
 import { reserveStock } from '../inventory/index.js';
 import { loadSellableOffers } from '../offers/index.js';
 import { audit, evaluateFlags, recordEvent } from '../platform/index.js';
+import { openCodRecord } from '../cod/index.js';
+import { codCheckout } from './cod-flow.js';
 import { chooseDelivery, deliveryOptions, resolveAddress, resolveLocality, type AddressInput } from '../shipping/index.js';
 import { getActiveStore, resolveCurrency } from '../stores/index.js';
 
@@ -39,7 +41,7 @@ async function existingCheckout(db: Database | Transaction, customerUserId: stri
     .where(and(eq(s.checkouts.customerUserId, customerUserId), eq(s.checkouts.idempotencyKey, key)));
   if (!checkout) return null;
   const orders = await db.select().from(s.orders).where(eq(s.orders.checkoutId, checkout.id));
-  return { checkoutId: checkout.id, orderIds: orders.map((o) => o.id), replayed: true };
+  return { checkoutId: checkout.id, orderIds: orders.map((o) => o.id), replayed: true, codConfirmationRequired: false };
 }
 
 export async function placeOrders(
@@ -64,6 +66,8 @@ export async function placeOrders(
   if (!shipsTo) throw badRequest('COUNTRY_NOT_SERVED', 'This store does not deliver to that country');
   // Wilaya, Daïra and Commune are checked and filled by the server; the phone is normalized.
   const address = await resolveAddress(db, input.shippingAddress);
+  // Cash on delivery: the store's rules and the customer's track record (by phone and account).
+  const cod = input.paymentMethod === 'cash_on_delivery' ? await codCheckout(db, store.id, customer.userId, address.phone) : null;
 
   const quantities = new Map<string, number>();
   for (const line of input.lines) quantities.set(line.offerId, (quantities.get(line.offerId) ?? 0) + line.quantity);
@@ -177,6 +181,15 @@ export async function placeOrders(
           lines: lines.map((l) => ({ offerId: l.offerId, quantity: l.quantity })),
           actorUserId: customer.userId,
         });
+        if (cod) {
+          if (cod.policy.maxAmountMinor !== null && order!.totalMinor > cod.policy.maxAmountMinor) {
+            throw new AppError(409, 'COD_AMOUNT_TOO_HIGH', 'This order is above the cash-on-delivery limit; pay online', {
+              merchantId,
+              maxAmountMinor: Number(cod.policy.maxAmountMinor),
+            });
+          }
+          await openCodRecord(tx, order!, { requireConfirmation: cod.policy.requireConfirmation, risk: cod.risk });
+        }
         await audit(tx, customer, { action: 'orders.order.placed', entityType: 'order', entityId: order!.id });
         await recordEvent(tx, {
           type: 'orders.order.placed',
@@ -186,7 +199,7 @@ export async function placeOrders(
         });
         orderIds.push(order!.id);
       }
-      return { checkoutId: checkout!.id, orderIds, replayed: false };
+      return { checkoutId: checkout!.id, orderIds, replayed: false, codConfirmationRequired: Boolean(cod?.policy.requireConfirmation) };
     });
   } catch (error) {
     // Two identical submissions at the same moment: the second one returns the first one's orders.

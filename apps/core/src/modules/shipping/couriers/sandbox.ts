@@ -16,6 +16,7 @@ const STATUS_MAP: Record<string, ShipmentStatus> = {
   delivery_attempt_failed: 'delivery_failed',
   delivered: 'delivered',
   return_in_progress: 'returning',
+  refused_by_customer: 'returning',
   returned_to_sender: 'returned',
 };
 
@@ -42,7 +43,11 @@ export function createSandboxCourier(): CourierAdapter & { parcels: Map<string, 
       if (given.length !== expected.length || !timingSafeEqual(Buffer.from(given), Buffer.from(expected))) {
         throw new AppError(401, 'INVALID_SIGNATURE', 'Invalid courier signature');
       }
-      const body = JSON.parse(rawBody) as { events: { id: string; tracking: string; status: string; at: string; location?: string; note?: string }[] };
+      const body = JSON.parse(rawBody) as {
+        events: { id: string; tracking: string; status: string; at: string; location?: string; note?: string; reason?: string }[];
+      };
+      const failures = ['customer_absent', 'customer_unreachable', 'wrong_address', 'customer_postponed', 'no_cash'] as const;
+      const asFailure = (r?: string) => (failures as readonly string[]).includes(r ?? '') ? (r as (typeof failures)[number]) : 'other';
       return body.events
         .filter((e) => STATUS_MAP[e.status])
         .map((e) => ({
@@ -52,6 +57,8 @@ export function createSandboxCourier(): CourierAdapter & { parcels: Map<string, 
           externalEventId: e.id,
           description: e.note,
           location: e.location,
+          ...(e.status === 'delivery_attempt_failed' ? { failureReason: asFailure(e.reason) } : {}),
+          ...(e.status === 'refused_by_customer' ? { refusalReason: 'other' as const } : {}),
           raw: e,
         }));
     },

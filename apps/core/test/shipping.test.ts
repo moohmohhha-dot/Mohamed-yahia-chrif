@@ -269,7 +269,7 @@ describe('parcels and tracking', () => {
     expect(await available()).toBe(before); // stock leaves the warehouse (reserved → consumed), availability unchanged
 
     await ok(await parcelStatus(o.id, { status: 'out_for_delivery', location: 'Oran' }));
-    await ok(await parcelStatus(o.id, { status: 'delivery_failed', note: 'Client injoignable' }));
+    await ok(await parcelStatus(o.id, { status: 'delivery_failed', reason: 'customer_unreachable', note: 'Client injoignable' }));
     expect((await dbOrder(o.id)).status).toBe('shipping');
     await ok(await parcelStatus(o.id, { status: 'out_for_delivery' }));
     const done = await ok(await parcelStatus(o.id, { status: 'delivered' }));

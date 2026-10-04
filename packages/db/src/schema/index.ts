@@ -10,3 +10,4 @@ export * from './platform.js';
 export * from './orders.js';
 export * from './finance.js';
 export * from './shipping.js';
+export * from './cod.js';

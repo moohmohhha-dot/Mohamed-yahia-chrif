@@ -1,5 +1,6 @@
 import pg from 'pg';
-import { createDb, runMigrations, seed } from '@aruma/db';
+import { isNull } from 'drizzle-orm';
+import { createDb, runMigrations, schema, seed } from '@aruma/db';
 import { runPaymentsMigrations } from '@aruma/payments';
 import { testDatabaseUrl } from './helpers.js';
 
@@ -14,5 +15,8 @@ export default async function setup() {
   await runPaymentsMigrations(testDatabaseUrl);
   const { db, pool } = createDb(testDatabaseUrl);
   await seed(db);
+  // Other modules' tests move cash-on-delivery orders straight to "processing"; cod.test.ts turns the
+  // confirmation back on for its store (production keeps the platform default: confirmation required).
+  await db.update(schema.codPolicies).set({ requireConfirmation: false }).where(isNull(schema.codPolicies.storeId));
   await pool.end();
 }

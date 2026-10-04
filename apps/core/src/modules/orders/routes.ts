@@ -4,7 +4,9 @@ import { badRequest } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
 import { authOf, requireAuth, requireRole } from '../identity/index.js';
 import { verifyPaymentEvent } from '../payments/index.js';
+import { CALL_OUTCOMES, FAILURE_REASONS, REFUSAL_REASONS } from '../cod/index.js';
 import { placeOrders, previewDelivery } from './checkout.js';
+import { confirmCodByCode, recordConfirmationCall, recordRefusal, scheduleReattempt, sendCodCode } from './cod-flow.js';
 import { createOrderShipment, handleCourierWebhook, updateOrderShipment } from './fulfillment.js';
 import { getCheckoutPayment, handlePaymentEvent, refundOrder, retryCheckoutPayment, startCheckoutPayment } from './payments.js';
 import { getOrder, listAllOrders, listCustomerOrders, listMerchantOrders, transitionOrder, type OrderActor } from './service.js';
@@ -28,6 +30,8 @@ const transitionBody = z.object({
 const shipmentStatuses = ['pending', 'ready_for_pickup', 'in_transit', 'out_for_delivery', 'delivery_failed', 'delivered', 'returning', 'returned', 'cancelled'] as const;
 const shipmentStatusBody = z.object({
   status: z.enum(shipmentStatuses),
+  /** Why a delivery attempt failed (required for cash-on-delivery orders). */
+  reason: z.enum(FAILURE_REASONS).optional(),
   trackingNumber: z.string().trim().min(3).max(64).optional(),
   note: z.string().trim().max(500).optional(),
   location: z.string().trim().max(200).optional(),
@@ -106,8 +110,16 @@ export async function orderRoutes(app: FastifyInstance) {
           throw e;
         });
     }
+    // Cash on delivery: the customer confirms with a code sent by SMS (or the merchant calls). A failed
+    // SMS does not fail the checkout: the customer can ask for a new code, and the merchant can call.
+    let cod: Record<string, unknown> | null = null;
+    if (result.codConfirmationRequired) {
+      cod = await sendCodCode(app.db, app.messages, authOf(req).userId, result.checkoutId)
+        .then((sent) => ({ confirmationRequired: true, codeSent: true, sentTo: sent.sentTo }))
+        .catch(() => ({ confirmationRequired: true, codeSent: false }));
+    }
     const orders = await Promise.all(result.orderIds.map((id) => getOrder(app.db, as(req, 'customer'), id)));
-    return reply.status(result.replayed ? 200 : 201).send({ data: { checkoutId: result.checkoutId, orders, payment } });
+    return reply.status(result.replayed ? 200 : 201).send({ data: { checkoutId: result.checkoutId, orders, payment, cod } });
   });
 
   /** Before checkout: for each seller of the cart, the ways it delivers to this Commune and their price. */
@@ -135,6 +147,18 @@ export async function orderRoutes(app: FastifyInstance) {
         paymentMethod: body.onlinePaymentMethod,
       }),
     };
+  });
+
+  /** Cash on delivery: a new SMS code to confirm the checkout's orders (at most one per minute). */
+  app.post('/v1/me/checkouts/:checkoutId/cod/send-code', auth, async (req) => {
+    const { checkoutId } = z.object({ checkoutId: z.uuid() }).parse(req.params);
+    return { data: await sendCodCode(app.db, app.messages, authOf(req).userId, checkoutId) };
+  });
+
+  app.post('/v1/me/checkouts/:checkoutId/cod/confirm', auth, async (req) => {
+    const { checkoutId } = z.object({ checkoutId: z.uuid() }).parse(req.params);
+    const { code } = z.object({ code: z.string().regex(/^\d{6}$/) }).parse(req.body);
+    return { data: await confirmCodByCode(app.db, authOf(req).userId, checkoutId, code) };
   });
 
   app.get('/v1/me/orders', auth, async (req) => ({
@@ -188,6 +212,34 @@ export async function orderRoutes(app: FastifyInstance) {
     return { data: await getOrder(app.db, actor, orderId) };
   });
 
+  const callBody = z.object({ outcome: z.enum(CALL_OUTCOMES), note: z.string().trim().max(500).optional() });
+
+  /** Cash on delivery: the result of a confirmation call (confirmed, no answer, call back later, wrong number, declined). */
+  app.post('/v1/merchants/:merchantId/orders/:orderId/cod/calls', auth, async (req) => {
+    const { merchantId, orderId } = merchantParams.extend({ orderId: z.uuid() }).parse(req.params);
+    const actor = as(req, 'merchant', merchantId);
+    await recordConfirmationCall(app.db, deps(), actor, orderId, callBody.parse(req.body));
+    return { data: await getOrder(app.db, actor, orderId) };
+  });
+
+  /** Cash on delivery: when the driver tries again after a failed delivery. */
+  app.post('/v1/merchants/:merchantId/orders/:orderId/cod/reattempt', auth, async (req) => {
+    const { merchantId, orderId } = merchantParams.extend({ orderId: z.uuid() }).parse(req.params);
+    const body = z.object({ at: z.iso.datetime({ offset: true }).transform((v) => new Date(v)), note: z.string().trim().max(500).optional() }).parse(req.body);
+    const actor = as(req, 'merchant', merchantId);
+    await scheduleReattempt(app.db, actor, orderId, body);
+    return { data: await getOrder(app.db, actor, orderId) };
+  });
+
+  /** The customer refused the parcel: it goes back to the merchant (and, with cash on delivery, nothing is collected). */
+  app.post('/v1/merchants/:merchantId/orders/:orderId/shipment/refusal', auth, async (req) => {
+    const { merchantId, orderId } = merchantParams.extend({ orderId: z.uuid() }).parse(req.params);
+    const body = z.object({ reason: z.enum(REFUSAL_REASONS), note: z.string().trim().max(500).optional() }).parse(req.body);
+    const actor = as(req, 'merchant', merchantId);
+    await recordRefusal(app.db, deps(), actor, orderId, body);
+    return { data: await getOrder(app.db, actor, orderId) };
+  });
+
   // --- Platform -----------------------------------------------------------------------------------
 
   const staff = { preHandler: requireRole('admin', 'support') };
@@ -217,6 +269,14 @@ export async function orderRoutes(app: FastifyInstance) {
     const actor = as(req, 'platform');
     const body = shipmentStatusBody.extend({ note: z.string().trim().min(3).max(500) }).parse(req.body);
     await updateOrderShipment(app.db, deps(), actor, orderId, body);
+    return { data: await getOrder(app.db, actor, orderId) };
+  });
+
+  /** ARUMA support can make the confirmation call for a merchant. */
+  app.post('/v1/admin/orders/:orderId/cod/calls', staff, async (req) => {
+    const { orderId } = orderParams.parse(req.params);
+    const actor = as(req, 'platform');
+    await recordConfirmationCall(app.db, deps(), actor, orderId, callBody.parse(req.body));
     return { data: await getOrder(app.db, actor, orderId) };
   });
 

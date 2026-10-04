@@ -36,6 +36,10 @@ export type CourierEvent = {
   externalEventId: string;
   description?: string;
   location?: string;
+  /** Why an attempt failed, when the courier says (ARUMA reason codes). */
+  failureReason?: 'customer_absent' | 'customer_unreachable' | 'wrong_address' | 'customer_postponed' | 'no_cash' | 'other';
+  /** Set when the customer refused the parcel. */
+  refusalReason?: 'changed_mind' | 'price' | 'did_not_order' | 'not_as_expected' | 'too_late' | 'other';
   raw: unknown;
 };
 
