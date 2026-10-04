@@ -28,6 +28,16 @@ export function destinationOf(order: Order): ShipmentDestination {
   return { type: 'address', ...contact, address: { ...a } };
 }
 
+/** A courier's tracking number belongs to one parcel only. */
+async function assertTrackingFree(db: Executor, courierCode: string | null, trackingNumber: string | null | undefined, shipmentId?: string) {
+  if (!courierCode || !trackingNumber) return;
+  const [other] = await db
+    .select({ id: s.shipments.id })
+    .from(s.shipments)
+    .where(and(eq(s.shipments.courierCode, courierCode), eq(s.shipments.trackingNumber, trackingNumber)));
+  if (other && other.id !== shipmentId) throw new AppError(409, 'TRACKING_NUMBER_IN_USE', 'This tracking number is already used by another parcel of this courier');
+}
+
 /** Creates the parcel of an order (status pending) with its first history line. */
 export async function openShipment(
   tx: Executor,
@@ -44,6 +54,7 @@ export async function openShipment(
   const { order } = input;
   if (!order.delivery) throw new AppError(409, 'NO_DELIVERY_METHOD', 'This order has no delivery method');
   if (await activeShipment(tx, order.id)) throw new AppError(409, 'SHIPMENT_EXISTS', 'This order already has a shipment');
+  await assertTrackingFree(tx, order.delivery.courierCode, input.trackingNumber?.trim());
   const [shipment] = await tx
     .insert(s.shipments)
     .values({
@@ -102,6 +113,7 @@ export async function recordShipmentStatus(tx: Executor, shipment: Shipment, upd
   if (update.trackingNumber?.trim() && shipment.trackingNumber && update.trackingNumber.trim() !== shipment.trackingNumber && shipment.status !== 'pending') {
     throw new AppError(409, 'TRACKING_LOCKED', 'The tracking number cannot change once the parcel has left');
   }
+  if (tracking !== shipment.trackingNumber) await assertTrackingFree(tx, shipment.courierCode, tracking, shipment.id);
   let moves = update.status !== shipment.status;
   if (moves && !SHIPMENT_TRANSITIONS[shipment.status].includes(update.status)) {
     if (update.source !== 'courier') {

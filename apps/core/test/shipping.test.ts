@@ -297,6 +297,7 @@ describe('parcels and tracking', () => {
     for (const to of ['processing', 'preparing']) await ok(await move(courier.id, { to }));
     expect((await move(courier.id, { to: 'shipping' })).json().error.code).toBe('TRACKING_NUMBER_REQUIRED');
     expect((await dbOrder(courier.id)).status).toBe('preparing'); // nothing changed
+    expect((await move(courier.id, { to: 'shipping', trackingNumber: 'YAL-777001' })).json().error.code).toBe('TRACKING_NUMBER_IN_USE'); // another parcel's
     expect((await ok(await move(courier.id, { to: 'shipping', trackingNumber: 'YAL-777002' }))).shipment).toMatchObject({ status: 'in_transit', trackingNumber: 'YAL-777002' });
   });
 

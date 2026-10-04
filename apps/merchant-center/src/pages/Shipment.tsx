@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api, money } from '../api';
 import { Card, ErrorBox, Field, useAction } from '../components/ui';
 import { useI18n, type MessageKey } from '../i18n';
+import { FAILURE_REASONS, REFUSAL_REASONS } from './Cod';
 
 export type ShipmentStatus = 'pending' | 'ready_for_pickup' | 'in_transit' | 'out_for_delivery' | 'delivery_failed' | 'delivered' | 'returning' | 'returned' | 'cancelled';
 export type Delivery = {
@@ -83,6 +84,8 @@ export function DeliveryInfo({ delivery }: { delivery: Delivery | null }) {
 }
 
 /** The order's parcel: prepare it, enter the tracking number, follow it, and its history. */
+const EMPTY = { trackingNumber: '', note: '', location: '', reason: '', refusal: '' };
+
 export function ShipmentPanel({
   orderUrl,
   orderStatus,
@@ -100,8 +103,9 @@ export function ShipmentPanel({
 }) {
   const { t, locale } = useI18n();
   const action = useAction();
-  const [form, setForm] = useState({ trackingNumber: '', note: '', location: '' });
-  const [next, setNext] = useState<ShipmentStatus | null>(null);
+  const [form, setForm] = useState({ trackingNumber: '', note: '', location: '', reason: '', refusal: '' });
+  /** The next parcel status, or a refusal by the customer (recorded with its reason). */
+  const [next, setNext] = useState<ShipmentStatus | 'refused' | null>(null);
   if (!delivery) return null;
   const isCourier = delivery.type === 'courier' || delivery.type === 'pickup_point';
   const live = shipment && shipment.status !== 'cancelled' ? shipment : null;
@@ -109,24 +113,29 @@ export function ShipmentPanel({
   const prepare = () =>
     action.run(async () => {
       await api('POST', `${orderUrl}/shipment`, form.trackingNumber.trim() ? { trackingNumber: form.trackingNumber.trim() } : {});
-      setForm({ trackingNumber: '', note: '', location: '' });
+      setForm(EMPTY);
       onDone();
     });
-  const update = (status: ShipmentStatus) =>
+  const update = (status: ShipmentStatus | 'refused') =>
     action.run(async () => {
-      await api('POST', `${orderUrl}/shipment/status`, {
-        status,
-        ...(form.trackingNumber.trim() ? { trackingNumber: form.trackingNumber.trim() } : {}),
-        ...(form.note.trim() ? { note: form.note.trim() } : {}),
-        ...(form.location.trim() ? { location: form.location.trim() } : {}),
-      });
+      const note = form.note.trim() ? { note: form.note.trim() } : {};
+      if (status === 'refused') await api('POST', `${orderUrl}/shipment/refusal`, { reason: form.refusal, ...note });
+      else
+        await api('POST', `${orderUrl}/shipment/status`, {
+          status,
+          ...(form.trackingNumber.trim() ? { trackingNumber: form.trackingNumber.trim() } : {}),
+          ...(status === 'delivery_failed' && form.reason ? { reason: form.reason } : {}),
+          ...(form.location.trim() ? { location: form.location.trim() } : {}),
+          ...note,
+        });
       setNext(null);
-      setForm({ trackingNumber: '', note: '', location: '' });
+      setForm(EMPTY);
       onDone();
     });
+  const canRefuse = live && !live.trackedByCourier && ['in_transit', 'out_for_delivery', 'delivery_failed', 'ready_for_pickup'].includes(live.status);
 
   const options = live && !live.trackedByCourier ? (NEXT[delivery.type === 'local_pickup' ? 'pickup' : 'road'][live.status] ?? []) : [];
-  const needsTracking = (to: ShipmentStatus) => isCourier && live && !live.trackingNumber && to !== 'cancelled';
+  const needsTracking = (to: ShipmentStatus | 'refused') => isCourier && live && !live.trackingNumber && to !== 'cancelled' && to !== 'refused';
 
   return (
     <div data-testid="shipment">
@@ -191,6 +200,11 @@ export function ShipmentPanel({
                     {t(`shipmentAction.${to}` as MessageKey)}
                   </button>
                 ))}
+                {canRefuse && (
+                  <button className="danger" disabled={action.pending} onClick={() => setNext('refused')}>
+                    {t('shipmentAction.refused')}
+                  </button>
+                )}
               </div>
             )}
             {next && (
@@ -202,14 +216,40 @@ export function ShipmentPanel({
                   void update(next);
                 }}
               >
+                {next === 'delivery_failed' && (
+                  <Field label={t('shipment.failureReason')}>
+                    <select required value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })}>
+                      <option value="" />
+                      {FAILURE_REASONS.map((r) => (
+                        <option key={r} value={r}>
+                          {t(`failure.${r}` as MessageKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                {next === 'refused' && (
+                  <Field label={t('shipment.refusalReason')}>
+                    <select required value={form.refusal} onChange={(e) => setForm({ ...form, refusal: e.target.value })}>
+                      <option value="" />
+                      {REFUSAL_REASONS.map((r) => (
+                        <option key={r} value={r}>
+                          {t(`refusal.${r}` as MessageKey)}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
                 {needsTracking(next) && (
                   <Field label={t('shipment.trackingNumber')}>
                     <input dir="ltr" required minLength={3} maxLength={64} value={form.trackingNumber} onChange={(e) => setForm({ ...form, trackingNumber: e.target.value })} />
                   </Field>
                 )}
-                <Field label={t('shipment.location')}>
-                  <input maxLength={200} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
-                </Field>
+                {next !== 'refused' && (
+                  <Field label={t('shipment.location')}>
+                    <input maxLength={200} value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} />
+                  </Field>
+                )}
                 <Field label={t('orders.note')}>
                   <input maxLength={500} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} />
                 </Field>

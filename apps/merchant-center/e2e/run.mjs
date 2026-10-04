@@ -156,7 +156,7 @@ try {
   await page.getByRole('heading', { name: 'لوحة القيادة' }).waitFor();
   await page.getByText('لا يمكنك البيع قبل توثيق حسابك').waitFor();
   check(true, 'new merchant cannot sell yet');
-  check((await page.locator('.nav-link').count()) === 21, 'all 21 Merchant Center sections are in the menu (20 + Shipping)');
+  check((await page.locator('.nav-link').count()) === 22, 'all 22 Merchant Center sections are in the menu (20 + Shipping + Cash on delivery)');
   await page.screenshot({ path: join(shots, '1-dashboard-ar.png'), fullPage: true });
 
   await page.locator('.nav-link', { hasText: 'المبيعات' }).click();
@@ -345,7 +345,8 @@ try {
     body: JSON.stringify({
       lines,
       paymentMethod: 'cash_on_delivery',
-      shippingAddress: { fullName: 'Yacine Meziane', phone: '0661 23 45 67', country: 'DZ', localityId: 'DZ-31-C-oran', line1: '5 rue Larbi Ben Mhidi', deliveryNotes: 'Appeler avant de passer' },
+      // A new phone each run: the customer's COD history (refusals…) follows the phone number.
+      shippingAddress: { fullName: 'Yacine Meziane', phone: `0661${String(Date.now()).slice(-6)}`, country: 'DZ', localityId: 'DZ-31-C-oran', line1: '5 rue Larbi Ben Mhidi', deliveryNotes: 'Appeler avant de passer' },
       delivery: [{ merchantId, methodId: option.methodId }],
     }),
   }).then((r) => r.json());
@@ -358,28 +359,69 @@ try {
   await page.getByText('Wilaya: Oran').waitFor();
   await page.getByTestId('delivery-notes').getByText('Appeler avant de passer').waitFor();
   check(true, 'address shows Commune, Daïra, Wilaya and the delivery notes');
-  await page.getByRole('button', { name: 'Confirm order' }).click();
+  console.log('Cash on delivery (English)');
+  await page.getByText('confirm the order with the customer before preparing it').waitFor();
+  check((await page.getByRole('button', { name: 'Confirm order' }).count()) === 0, 'a COD order cannot be prepared before the customer confirms');
+  const cod = page.getByTestId('cod');
+  await cod.getByText('First cash-on-delivery order').waitFor();
+  await cod.getByText('Low risk').waitFor();
+  await cod.getByText('DZD 14,900.00').first().waitFor();
+  check(true, 'COD panel shows the amount to collect and the customer risk (first order, low)');
+  await cod.getByLabel('Note').fill('Pas de réponse à 10h');
+  await cod.getByRole('button', { name: 'No answer' }).click();
+  await cod.getByText('1 / 3').waitFor();
+  await cod.getByRole('button', { name: 'Confirmed' }).click();
+  await page.getByRole('heading', { name: number }).getByText('Processing').waitFor();
+  check(true, 'confirmation calls recorded; "Confirmed" confirms the order');
   const shipment = page.getByTestId('shipment');
   await shipment.getByRole('button', { name: 'Prepare the parcel' }).click();
   await shipment.getByText('Being prepared').first().waitFor();
   await shipment.getByRole('button', { name: 'Handed to courier' }).click();
-  await shipment.getByLabel('Tracking number').fill('YAL-4512');
+  await shipment.getByLabel('Tracking number').fill(`YAL-${run}`);
   await shipment.getByRole('button', { name: 'Confirm · Handed to courier' }).click();
-  await shipment.getByText('YAL-4512').waitFor();
+  await shipment.getByText(`YAL-${run}`).waitFor();
   await shipment.getByRole('button', { name: 'Out for delivery' }).click();
   await shipment.getByLabel('Place (optional)').fill('Oran');
+  await shipment.getByRole('button', { name: 'Confirm · Out for delivery' }).click();
+  await shipment.getByRole('button', { name: 'Delivery failed' }).click();
+  await shipment.getByLabel('Why did it fail?').selectOption('customer_absent');
+  await shipment.getByRole('button', { name: 'Confirm · Delivery failed' }).click();
+  await cod.getByText('Customer absent').first().waitFor();
+  const tomorrow = new Date(Date.now() + 24 * 3600_000).toISOString().slice(0, 10);
+  await cod.getByLabel('New attempt on').fill(tomorrow);
+  await cod.getByRole('button', { name: 'Schedule the new attempt' }).click();
+  await cod.getByText('Next attempt').waitFor();
+  check(true, 'failed delivery recorded with its reason, new attempt scheduled');
+  await shipment.getByRole('button', { name: 'Out for delivery' }).click();
   await shipment.getByRole('button', { name: 'Confirm · Out for delivery' }).click();
   await shipment.getByRole('button', { name: 'Delivered' }).click();
   await shipment.getByRole('button', { name: 'Confirm · Delivered' }).click();
   await page.getByRole('heading', { name: number }).getByText('Delivered').waitFor();
-  check(true, 'parcel prepared, handed to Yalidine with its tracking number, out for delivery, delivered — the order followed');
+  check(true, 'parcel prepared, handed to Yalidine with its tracking number, delivered on the second attempt — the order followed');
+  await cod.getByText('With the courier').waitFor();
+
+  await page.locator('.nav-link', { hasText: 'Cash on delivery' }).click();
+  await page.getByTestId('cod-withCourier').getByText('14,900.00').waitFor();
+  await page.getByRole('checkbox', { name: number }).check();
+  await page.getByLabel('Payment reference').fill(`YAL-VIR-${run}`);
+  await page.getByLabel('Courier fees (DZD)').fill('500');
+  await page.getByText('Expected: DZD 14,400.00').waitFor();
+  await page.getByLabel('Amount received (DZD)').fill('14400');
+  await page.getByRole('button', { name: 'Record the payment' }).click();
+  await page.getByTestId('cod-withMerchant').getByText('14,900.00').waitFor();
+  await page.locator('td', { hasText: `YAL-VIR-${run}` }).waitFor();
+  check(true, "courier's payment recorded and checked: 14 900 collected − 500 fees = 14 400 received");
+  await page.screenshot({ path: join(shots, '6-cod-en.png'), fullPage: true });
+  await page.locator('.nav-link', { hasText: 'Orders' }).click();
+  await page.getByRole('button', { name: number }).click();
+  await page.getByRole('heading', { name: number }).waitFor();
   await page.getByRole('button', { name: 'Record a return' }).click();
   await page.getByLabel('Reason (required)').fill('Refusé à la livraison');
   await page.getByRole('button', { name: 'Confirm · Record a return' }).click();
   await page.getByTestId('order-history').locator('tbody tr').nth(5).waitFor();
   const rows = await page.getByTestId('order-history').locator('tbody tr').count();
   check(rows === 6, 'order moved new → processing → preparing → shipping → delivered → returned, all recorded');
-  check((await page.getByTestId('shipment-history').locator('tbody tr').count()) === 5, 'tracking history: prepared, in transit, out for delivery, delivered, back');
+  check((await page.getByTestId('shipment-history').locator('tbody tr').count()) === 7, 'tracking history: prepared, in transit, out, failed, out again, delivered, back');
   check((await page.getByRole('button', { name: 'Refund' }).count()) === 0, 'merchant has no refund button');
   await page.getByText('Refusé à la livraison').first().waitFor();
   check(true, 'history shows the reason');

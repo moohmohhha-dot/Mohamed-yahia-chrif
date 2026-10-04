@@ -5,6 +5,7 @@ import { Card, ErrorBox, Field, Loading, useAction, useLoad } from '../component
 import { useI18n, type MessageKey } from '../i18n';
 import { useMerchant } from '../merchant-context';
 import { nameIn, sizeLabel } from './common';
+import { CodPanel, ConfirmationBadge, RiskBadge, type Cod } from './Cod';
 import { ShipmentPanel, type Delivery, type Shipment } from './Shipment';
 
 const STATUSES = ['new', 'processing', 'preparing', 'shipping', 'delivered', 'cancelled', 'returned', 'refunded'] as const;
@@ -40,6 +41,7 @@ type OrderSummary = {
   city: string;
   region: string;
   placedAt: string;
+  cod: { confirmationStatus: Cod['confirmationStatus']; riskLevel: Cod['risk']['level'] } | null;
 };
 type OrderDetail = OrderSummary & {
   subtotalMinor: number;
@@ -61,6 +63,7 @@ type OrderDetail = OrderSummary & {
   };
   delivery: Delivery | null;
   shipment: Shipment | null;
+  cod: Cod | null;
   lines: { id: string; sku: string; productNames: Record<string, string>; options: Record<string, unknown>; quantity: number; unitPriceMinor: number; lineTotalMinor: number }[];
   history: { id: string; fromStatus: Status | null; toStatus: Status; actorType: string; actorName: string | null; reason: string | null; note: string | null; createdAt: string }[];
   allowedTransitions: { to: Status; reasonRequired: boolean }[];
@@ -131,7 +134,11 @@ export function OrdersPage() {
                     <OrderStatusBadge status={o.status} />
                   </td>
                   <td>
-                    <PaymentBadge status={o.paymentStatus} />
+                    <span className="row">
+                      <PaymentBadge status={o.paymentStatus} />
+                      {o.cod?.confirmationStatus === 'pending' && o.status === 'new' && <ConfirmationBadge status="pending" />}
+                      {o.cod && o.cod.riskLevel !== 'low' && <RiskBadge level={o.cod.riskLevel} />}
+                    </span>
                   </td>
                 </tr>
               ))}
@@ -167,7 +174,9 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
       {o.paymentMethod === 'online' && o.paymentStatus !== 'successful' && o.status === 'new' && (
         <div className="alert alert-warn">{t('orders.awaitingPayment')}</div>
       )}
+      {o.cod?.confirmationStatus === 'pending' && o.status === 'new' && <div className="alert alert-warn">{t('cod.confirmFirst')}</div>}
       <Actions order={o} url={url} onDone={() => void order.reload()} />
+      {o.cod && <CodPanel cod={o.cod} orderUrl={url} orderStatus={o.status} shipmentStatus={o.shipment && o.shipment.status !== 'cancelled' ? o.shipment.status : null} onDone={() => void order.reload()} />}
       <ShipmentPanel orderUrl={url} orderStatus={o.status} delivery={o.delivery} shipment={o.shipment} currency={o.currency} onDone={() => void order.reload()} />
 
       <div className="form-grid">
