@@ -22,7 +22,7 @@ New ──► Processing ──► Preparing ──► Shipping ──► Delive
 
 | من | إلى | من يستطيع | السبب |
 |---|---|---|---|
-| New | Processing | التاجر، ARUMA | — |
+| New | Processing | التاجر، ARUMA | — (الدفع عند الاستلام: بعد تأكيد الزبون، [COD.md](COD.md)) |
 | New / Processing | Cancelled | الزبون، التاجر (مالك/مدير)، ARUMA | إلزامي إلا للزبون |
 | Processing | Preparing | التاجر، ARUMA | — |
 | Preparing | Shipping | التاجر، ARUMA، النظام (تحديث من الناقل) | — (رقم التتبع إلزامي مع شركة توصيل) |

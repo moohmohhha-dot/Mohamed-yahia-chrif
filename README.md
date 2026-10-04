@@ -12,6 +12,7 @@
 - الدفع (خدمة مستقلة): [docs/PAYMENTS.md](docs/PAYMENTS.md)
 - المالية (الدفتر، العمولة، التسويات): [docs/FINANCE.md](docs/FINANCE.md)
 - التوصيل (العنوان الجزائري، الأسعار، التتبع، شركات التوصيل): [docs/SHIPPING.md](docs/SHIPPING.md)
+- الدفع عند الاستلام (التأكيد، التحصيل، الرفض، المخاطر): [docs/COD.md](docs/COD.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)
