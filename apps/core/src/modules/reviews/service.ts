@@ -447,7 +447,7 @@ export async function merchantReviews(db: Database, userId: string, merchantId: 
   if (q.type) where.push(eq(s.reviews.type, q.type));
   if (q.rating) where.push(eq(s.reviews.rating, q.rating));
   const rows = await db
-    .select({ review: s.reviews, author: s.users.displayName, productName: sql<string | null>`(select t.name from ${s.productTranslations} t where t.product_id = ${s.reviews.productId} order by t.locale limit 1)` })
+    .select({ review: s.reviews, author: s.users.displayName, productNames: sql<Record<string, string> | null>`(select jsonb_object_agg(t.locale, t.name) from ${s.productTranslations} t where t.product_id = ${s.reviews.productId})` })
     .from(s.reviews)
     .innerJoin(s.users, eq(s.users.id, s.reviews.customerUserId))
     .where(and(...where))
@@ -467,11 +467,11 @@ export async function merchantReviews(db: Database, userId: string, merchantId: 
   return {
     merchantRating: merchantSummary,
     productRating: { count: productAgg[0]!.n, average: productAgg[0]!.avg === null ? null : Number(productAgg[0]!.avg) },
-    reviews: rows.map(({ review: r, author, productName }) => ({
+    reviews: rows.map(({ review: r, author, productNames }) => ({
       id: r.id,
       type: r.type,
       productId: r.productId,
-      productName,
+      productNames,
       rating: r.rating,
       title: r.title,
       body: r.body,

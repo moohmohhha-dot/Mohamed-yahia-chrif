@@ -14,6 +14,7 @@ import { OrdersPage } from '../pages/Orders';
 import { PayoutsPage } from '../pages/Payouts';
 import { ProductsPage } from '../pages/Products';
 import { ReturnsPage } from '../pages/Returns';
+import { ReviewsPage } from '../pages/Reviews';
 import { SettingsPage } from '../pages/Settings';
 import { ShippingPage } from '../pages/Shipping';
 import { VariantsPage } from '../pages/Variants';
@@ -29,6 +30,7 @@ const PAGES: Partial<Record<SectionId, ComponentType>> = {
   offers: OffersPage,
   orders: OrdersPage,
   returns: ReturnsPage,
+  reviews: ReviewsPage,
   shipping: ShippingPage,
   cod: CodPage,
   inventory: InventoryPage,

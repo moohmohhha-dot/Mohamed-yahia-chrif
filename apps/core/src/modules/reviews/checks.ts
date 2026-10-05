@@ -11,7 +11,8 @@ import { schema as s, type ReviewFlag } from '@aruma/db';
 import type { Executor } from '../../shared/db.js';
 
 const LINK = /(https?:\/\/|www\.|\b[\w-]+\.(com|dz|net|org|fr|io|shop|store)\b)/i;
-const PHONE = /(\+|00)?\d[\d\s.-]{7,}\d/;
+/** Phone numbers: Algerian (05/06/07 mobiles, 02-04 landlines) or international (+… / 00…); order numbers like 2026-000014 are not phones. */
+const PHONE = /(?<![\d-])(?:(?:\+|00)[1-9]\d{0,2}[\s.-]?\d(?:[\s.-]?\d){6,}|0[5-7](?:[\s.-]?\d){8}|0[2-4](?:[\s.-]?\d){7})(?![\d-])/;
 const EMAIL = /[\w.+-]+@[\w-]+\.[\w.]+/;
 const REPEATED = /(.)\1{7,}/u;
 /** Words that always need a human look (insults, scam vocabulary). Kept short and extended by moderators' feedback. */

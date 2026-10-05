@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
+import { textFlags } from '../src/modules/reviews/checks.js';
 import { bearer, buildTestApp, caller, dzAddress, multipartFile, PNG, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
@@ -144,6 +145,15 @@ describe('verified purchase', () => {
 });
 
 describe('protection against spam and fake reviews', () => {
+  it('recognises contact details and links, without mistaking order numbers or quantities for them', () => {
+    const codes = (text: string) => textFlags(text).map((f) => f.code);
+    for (const text of ['Appelez 0555 12 34 56', 'Tel: 0661234567', 'WhatsApp +213 555 12 34 56', 'Fixe 021 23 45 67', 'Écrivez à vendeur@mail.com']) {
+      expect(codes(text), text).toContain('contact_info');
+    }
+    for (const text of ['Commande 2026-000014 reçue', 'Flacon de 100 ml pour 7200 DZD', 'Livré le 12/10/2026']) expect(codes(text), text).toEqual([]);
+    expect(codes('voir parfums-algerie.dz')).toContain('link');
+  });
+
   it('holds reviews with links, contact details, copied text or blocked words for moderation', async () => {
     const cases: [object, string][] = [
       [{ body: 'Achetez moins cher sur www.parfums-pas-chers.com !' }, 'link'],

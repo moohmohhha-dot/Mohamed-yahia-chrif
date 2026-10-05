@@ -455,6 +455,34 @@ try {
   check(true, 'history shows the return that closed the order');
   await page.screenshot({ path: join(shots, '5-order-en.png'), fullPage: true });
 
+  console.log('Reviews (English)');
+  const review = (body) =>
+    fetch(`${API}/v1/me/reviews`, { method: 'POST', headers: { ...asShopper, 'content-type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.json());
+  const productReview = await review({ type: 'product', orderLineId: placed.data.orders[0].lines[0].id, rating: 5, title: 'Sillage magnifique', body: `Le parfum tient toute la journée, je recommande (commande ${number}).` });
+  const shopReview = await review({ type: 'merchant', orderId: placed.data.orders[0].id, rating: 4, body: `Bon vendeur, réponse rapide (commande ${number}).` });
+  // Identical text from other accounts (earlier runs) would be held as copied: each run writes its own.
+  check(productReview.data.status === 'published' && shopReview.data.status === 'published', 'verified buyer reviews the product and the shop');
+  const spam = await review({ type: 'product', orderLineId: placed.data.orders[0].lines[0].id, rating: 5, body: 'Encore un excellent parfum !' });
+  check(spam.error?.code === 'ALREADY_REVIEWED', 'a second review of the same product is refused');
+
+  await page.locator('.nav-link', { hasText: 'Reviews' }).click();
+  await page.getByTestId('seller-rating').getByText('4.0').waitFor();
+  const reviewCard = page.getByTestId(`review-${productReview.data.id}`);
+  await reviewCard.getByText('Le parfum tient toute la journée').waitFor();
+  await reviewCard.getByText('Verified purchase').waitFor();
+  check(true, 'merchant sees its ratings and the verified reviews');
+  await reviewCard.getByRole('button', { name: 'Reply' }).click();
+  await reviewCard.getByLabel('Public reply').fill('Appelez-nous au 0555 12 34 56');
+  await reviewCard.getByRole('button', { name: 'Publish the reply' }).click();
+  await reviewCard.getByText('Replies cannot contain links, contact details or blocked words.').waitFor();
+  await reviewCard.getByLabel('Public reply').fill('Merci beaucoup, au plaisir de vous servir à nouveau !');
+  await reviewCard.getByRole('button', { name: 'Publish the reply' }).click();
+  await reviewCard.getByText('Your reply:').waitFor();
+  const shown = await fetch(`${API}/v1/products/${productReview.data.productId}/reviews`).then((r) => r.json());
+  check(shown.data.reviews[0].merchantReply?.text === 'Merci beaucoup, au plaisir de vous servir à nouveau !', 'public reply shown under the review (contact details refused)');
+  await page.screenshot({ path: join(shots, '8-reviews-en.png'), fullPage: true });
+
+
   await page.getByLabel('Language').first().selectOption('ar');
   await page.locator('.nav-link', { hasText: 'لوحة القيادة' }).click();
   await page.getByText('حسابك موثّق').waitFor();
