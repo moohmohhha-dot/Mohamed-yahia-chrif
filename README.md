@@ -14,6 +14,7 @@
 - التوصيل (العنوان الجزائري، الأسعار، التتبع، شركات التوصيل): [docs/SHIPPING.md](docs/SHIPPING.md)
 - الدفع عند الاستلام (التأكيد، التحصيل، الرفض، المخاطر): [docs/COD.md](docs/COD.md)
 - المرتجعات ورصيد المتجر: [docs/RETURNS.md](docs/RETURNS.md)
+- التقييمات والحماية من المزيف: [docs/REVIEWS.md](docs/REVIEWS.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)
