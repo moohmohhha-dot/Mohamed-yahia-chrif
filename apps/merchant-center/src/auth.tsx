@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import { api, setUnauthorizedHandler, tokenStore } from './api';
 
-export type User = { id: string; email: string; displayName: string; role: 'user' | 'support' | 'admin' };
+export type User = { id: string; email: string; displayName: string };
 type Auth = {
   user: User | null;
   ready: boolean;

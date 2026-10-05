@@ -2,7 +2,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { badRequest } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
-import { authOf, requireAuth, requireRole } from '../identity/index.js';
+import { authOf, can, requireAuth } from '../identity/index.js';
+import { schema as s } from '@aruma/db';
+import { eq } from 'drizzle-orm';
+import { assertNoConflictOfInterest } from '../merchants/index.js';
 import { clearReturnPolicy, returnPolicy, setReturnPolicy } from './policy.js';
 import {
   addEvidence,
@@ -38,8 +41,6 @@ const amount = z.number().int().min(0).max(100_000_000_00);
 /** Customers ask; merchants answer, collect and inspect; ARUMA arbitrates and sends refunds that need a transfer. */
 export async function returnRoutes(app: FastifyInstance) {
   const auth = { preHandler: requireAuth };
-  const staff = { preHandler: requireRole('admin', 'support') };
-  const admin = { preHandler: requireRole('admin') };
   const deps = () => ({ payments: app.payments, couriers: app.couriers, secrets: app.secrets });
   const files = () => ({ storage: app.storage, secrets: app.secrets });
   const as = (req: FastifyRequest, type: ReturnActor['type'], merchantId?: string): ReturnActor => ({ ...actorFrom(req), userId: authOf(req).userId, type, merchantId });
@@ -191,19 +192,21 @@ export async function returnRoutes(app: FastifyInstance) {
 
   // --- ARUMA ----------------------------------------------------------------------------------------------
 
-  app.get('/v1/admin/returns', staff, async (req) => ({ data: await listReturns(app.db, as(req, 'platform'), listQuery.parse(req.query)) }));
+  app.get('/v1/admin/returns', can('returns.read'), async (req) => ({ data: await listReturns(app.db, as(req, 'platform'), listQuery.parse(req.query)) }));
 
-  app.get('/v1/admin/returns/:returnId', staff, async (req) => ({ data: await getReturn(app.db, as(req, 'platform'), returnParams.parse(req.params).returnId) }));
+  app.get('/v1/admin/returns/:returnId', can('returns.read'), async (req) => ({ data: await getReturn(app.db, as(req, 'platform'), returnParams.parse(req.params).returnId) }));
 
-  app.get('/v1/admin/returns/:returnId/evidence/:evidenceId', staff, async (req, reply) => {
+  app.get('/v1/admin/returns/:returnId/evidence/:evidenceId', can('returns.read'), async (req, reply) => {
     const { returnId, evidenceId } = returnParams.extend({ evidenceId: z.uuid() }).parse(req.params);
     const { row, body } = await readEvidence(app.db, files(), as(req, 'platform'), returnId, evidenceId);
     return sendEvidence(reply, row, body);
   });
 
   /** ARUMA's final decision on a disputed return (support staff review; the decision is the administrators'). */
-  app.post('/v1/admin/returns/:returnId/decision', admin, async (req) => {
+  app.post('/v1/admin/returns/:returnId/decision', can('returns.decide'), async (req) => {
     const { returnId } = returnParams.parse(req.params);
+    const [ret] = await app.db.select({ merchantId: s.returnRequests.merchantId }).from(s.returnRequests).where(eq(s.returnRequests.id, returnId));
+    if (ret) await assertNoConflictOfInterest(app.db, authOf(req).userId, ret.merchantId);
     const body = z
       .object({
         decision: z.enum(['approve', 'reject']),
@@ -219,7 +222,7 @@ export async function returnRoutes(app: FastifyInstance) {
   });
 
   /** Sends (online) or records (cash on delivery: transfer reference) the refund of a resolved return. */
-  app.post('/v1/admin/returns/:returnId/refund', admin, async (req) => {
+  app.post('/v1/admin/returns/:returnId/refund', can('refunds.execute'), async (req) => {
     const { returnId } = returnParams.parse(req.params);
     const body = z.object({ externalReference: z.string().trim().min(3).max(128).optional() }).parse(req.body ?? {});
     await sendRefund(app.db, deps(), as(req, 'platform'), returnId, body);
@@ -235,15 +238,15 @@ export async function returnRoutes(app: FastifyInstance) {
   });
   const show = (p: Awaited<ReturnType<typeof returnPolicy>>) => ({ ...p, changeOfMindFeeMinor: Number(p.changeOfMindFeeMinor) });
 
-  app.get('/v1/admin/returns-policy', staff, async (req) => {
+  app.get('/v1/admin/returns-policy', can('returns.read'), async (req) => {
     const { storeId } = z.object({ storeId: z.uuid().optional() }).parse(req.query);
     return { data: show(await returnPolicy(app.db, storeId ?? null)) };
   });
-  app.put('/v1/admin/returns-policy', admin, async (req) => {
+  app.put('/v1/admin/returns-policy', can('returns.policy'), async (req) => {
     const { storeId } = z.object({ storeId: z.uuid().optional() }).parse(req.query);
     return { data: show(await setReturnPolicy(app.db, { ...actorFrom(req), userId: authOf(req).userId }, storeId ?? null, policyBody.parse(req.body))) };
   });
-  app.delete('/v1/admin/returns-policy', admin, async (req) => {
+  app.delete('/v1/admin/returns-policy', can('returns.policy'), async (req) => {
     const { storeId } = z.object({ storeId: z.uuid() }).parse(req.query);
     await clearReturnPolicy(app.db, { ...actorFrom(req), userId: authOf(req).userId }, storeId);
     return { data: { cleared: true } };

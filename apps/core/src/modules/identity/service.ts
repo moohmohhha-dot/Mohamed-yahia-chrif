@@ -5,6 +5,7 @@ import { conflict, forbidden, unauthorized } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { audit, recordEvent } from '../platform/index.js';
 import { DUMMY_HASH, hashPassword, verifyPassword } from './password.js';
+import { permissionsOf, type Permission, type StaffRole } from './permissions.js';
 import { generateToken, hashToken } from './tokens.js';
 
 export const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -17,7 +18,8 @@ export type ClientInfo = {
   platform: 'web' | 'ios' | 'android';
 };
 
-export type AuthContext = { userId: string; sessionId: string; role: 'user' | 'support' | 'admin' };
+/** `staffRoles` is empty for customers and merchants; `permissions` is what those roles allow (permissions.ts). */
+export type AuthContext = { userId: string; sessionId: string; staffRoles: StaffRole[]; permissions: ReadonlySet<Permission> };
 
 export type PublicUser = {
   id: string;
@@ -26,7 +28,6 @@ export type PublicUser = {
   displayName: string;
   locale: string | null;
   country: string | null;
-  role: 'user' | 'support' | 'admin';
   emailVerified: boolean;
   createdAt: Date;
 };
@@ -39,7 +40,6 @@ export function toPublicUser(u: typeof s.users.$inferSelect): PublicUser {
     displayName: u.displayName,
     locale: u.locale,
     country: u.country,
-    role: u.role,
     emailVerified: u.emailVerifiedAt !== null,
     createdAt: u.createdAt,
   };
@@ -137,6 +137,14 @@ export async function login(db: Database, input: { email: string; password: stri
   });
 }
 
+export async function activeStaffRoles(db: Executor, userId: string): Promise<StaffRole[]> {
+  const rows = await db
+    .select({ role: s.staffRoleGrants.role })
+    .from(s.staffRoleGrants)
+    .where(and(eq(s.staffRoleGrants.userId, userId), isNull(s.staffRoleGrants.revokedAt)));
+  return rows.map((r) => r.role);
+}
+
 /** Resolves a bearer token to its session, or null if unknown, expired, revoked or the user is inactive. */
 export async function authenticate(db: Database, token: string): Promise<AuthContext | null> {
   const now = new Date();
@@ -144,7 +152,6 @@ export async function authenticate(db: Database, token: string): Promise<AuthCon
     .select({
       sessionId: s.sessions.id,
       userId: s.users.id,
-      role: s.users.role,
       status: s.users.status,
       lastUsedAt: s.sessions.lastUsedAt,
     })
@@ -156,7 +163,8 @@ export async function authenticate(db: Database, token: string): Promise<AuthCon
   if (now.getTime() - row.lastUsedAt.getTime() > TOUCH_INTERVAL_MS) {
     await db.update(s.sessions).set({ lastUsedAt: now }).where(eq(s.sessions.id, row.sessionId));
   }
-  return { sessionId: row.sessionId, userId: row.userId, role: row.role };
+  const staffRoles = await activeStaffRoles(db, row.userId);
+  return { sessionId: row.sessionId, userId: row.userId, staffRoles, permissions: permissionsOf(staffRoles) };
 }
 
 export async function getUser(db: Executor, userId: string): Promise<PublicUser> {

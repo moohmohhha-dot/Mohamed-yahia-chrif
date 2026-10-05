@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
 import { forbidden, unauthorized } from '../../shared/errors.js';
+import type { Permission } from './permissions.js';
 import { authenticate, type AuthContext, type ClientInfo } from './service.js';
 
 declare module 'fastify' {
@@ -32,12 +33,16 @@ export async function requireAuth(req: FastifyRequest, _reply: FastifyReply) {
   if (!req.auth) throw unauthorized();
 }
 
-export function requireRole(...roles: AuthContext['role'][]) {
+/** ARUMA staff only: the user's roles must give at least one of these permissions. */
+export function requirePermission(...permissions: Permission[]) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     await requireAuth(req, reply);
-    if (!roles.includes(req.auth!.role)) throw forbidden();
+    if (!permissions.some((p) => req.auth!.permissions.has(p))) throw forbidden();
   };
 }
+
+/** Route option shorthand: `app.get(path, can('orders.read'), handler)`. */
+export const can = (...permissions: Permission[]) => ({ preHandler: requirePermission(...permissions) });
 
 /** Returns the authenticated context; only call after `requireAuth` ran. */
 export function authOf(req: FastifyRequest): AuthContext {

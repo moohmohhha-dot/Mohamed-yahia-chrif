@@ -2,7 +2,10 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { badRequest } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
-import { authOf, requireAuth, requireRole } from '../identity/index.js';
+import { authOf, can, requireAuth } from '../identity/index.js';
+import { schema as s } from '@aruma/db';
+import { eq } from 'drizzle-orm';
+import { assertNoConflictOfInterest } from '../merchants/index.js';
 import {
   acceptDecision,
   addFile,
@@ -51,8 +54,6 @@ const fileQuery = z.object({ kind: z.enum(['evidence', 'document']).default('evi
 /** Customers and merchants open and argue disputes; ARUMA decides, hears the appeal and executes the resolution. */
 export async function disputeRoutes(app: FastifyInstance) {
   const auth = { preHandler: requireAuth };
-  const staff = { preHandler: requireRole('admin', 'support') };
-  const admin = { preHandler: requireRole('admin') };
   const deps = () => ({ payments: app.payments, couriers: app.couriers, secrets: app.secrets });
   const files = () => ({ storage: app.storage, secrets: app.secrets });
   const as = (req: FastifyRequest, type: DisputeActor['type'], merchantId?: string) => ({ ...actorFrom(req), userId: authOf(req).userId, type, merchantId });
@@ -141,36 +142,43 @@ export async function disputeRoutes(app: FastifyInstance) {
   const adminOne = (req: FastifyRequest) => z.object({ disputeId: z.uuid() }).parse(req.params).disputeId;
   const adminShow = async (req: FastifyRequest) => ({ data: await describeDispute(app.db, as(req, 'platform'), adminOne(req)) });
 
-  app.get('/v1/admin/disputes', staff, async (req) => ({ data: await listDisputes(app.db, as(req, 'platform'), listQuery.parse(req.query)) }));
-  app.get('/v1/admin/disputes/:disputeId', staff, adminShow);
+  app.get('/v1/admin/disputes', can('disputes.read'), async (req) => ({ data: await listDisputes(app.db, as(req, 'platform'), listQuery.parse(req.query)) }));
+  app.get('/v1/admin/disputes/:disputeId', can('disputes.read'), adminShow);
   /** A message to the parties, or an internal note (internal: true) that only ARUMA sees. */
-  app.post('/v1/admin/disputes/:disputeId/messages', staff, async (req, reply) => {
+  app.post('/v1/admin/disputes/:disputeId/messages', can('disputes.handle'), async (req, reply) => {
     await postMessage(app.db, as(req, 'platform'), adminOne(req), messageBody.parse(req.body));
     return reply.status(201).send(await adminShow(req));
   });
-  app.post('/v1/admin/disputes/:disputeId/files', staff, (req, reply) => upload(req, reply, as(req, 'platform'), adminOne(req)));
-  app.get('/v1/admin/disputes/:disputeId/files/:fileId', staff, async (req, reply) =>
+  app.post('/v1/admin/disputes/:disputeId/files', can('disputes.handle'), (req, reply) => upload(req, reply, as(req, 'platform'), adminOne(req)));
+  app.get('/v1/admin/disputes/:disputeId/files/:fileId', can('disputes.read'), async (req, reply) =>
     download(reply, as(req, 'platform'), adminOne(req), z.object({ fileId: z.uuid() }).parse(req.params).fileId),
   );
-  app.post('/v1/admin/disputes/:disputeId/review', staff, async (req) => {
+  app.post('/v1/admin/disputes/:disputeId/review', can('disputes.handle'), async (req) => {
     await escalateDispute(app.db, as(req, 'platform'), adminOne(req), reason.parse(req.body).reason);
     return adminShow(req);
   });
 
   const decision = z.object({ outcome: z.enum(outcomes), remedy: z.enum(remedies), amountMinor: amount.optional(), text: z.string().trim().min(20).max(5000) });
   /** The decision (administrators). Support staff prepare the file with internal notes. */
-  app.post('/v1/admin/disputes/:disputeId/decision', admin, async (req) => {
+  /** Staff never decide about a merchant they belong to. */
+  const noConflict = async (req: FastifyRequest) => {
+    const [d] = await app.db.select({ merchantId: s.disputes.merchantId }).from(s.disputes).where(eq(s.disputes.id, adminOne(req)));
+    if (d) await assertNoConflictOfInterest(app.db, authOf(req).userId, d.merchantId);
+  };
+  app.post('/v1/admin/disputes/:disputeId/decision', can('disputes.decide'), async (req) => {
+    await noConflict(req);
     await decideDispute(app.db, deps(), as(req, 'platform'), adminOne(req), decision.parse(req.body));
     return adminShow(req);
   });
   /** The appeal, decided by another administrator: upheld, overturned or modified. */
-  app.post('/v1/admin/disputes/:disputeId/appeal-decision', admin, async (req) => {
+  app.post('/v1/admin/disputes/:disputeId/appeal-decision', can('disputes.decide'), async (req) => {
     const body = decision.partial({ outcome: true, remedy: true }).extend({ result: z.enum(['upheld', 'overturned', 'modified']) }).parse(req.body);
+    await noConflict(req);
     await decideAppeal(app.db, deps(), as(req, 'platform'), adminOne(req), body);
     return adminShow(req);
   });
   /** Sends (online) or records (cash on delivery: transfer reference) a refund that is still waiting. */
-  app.post('/v1/admin/disputes/:disputeId/refund', admin, async (req) => {
+  app.post('/v1/admin/disputes/:disputeId/refund', can('refunds.execute'), async (req) => {
     const body = z.object({ externalReference: z.string().trim().min(3).max(128).optional() }).parse(req.body ?? {});
     await sendDisputeRefund(app.db, deps(), as(req, 'platform'), adminOne(req), body);
     return adminShow(req);

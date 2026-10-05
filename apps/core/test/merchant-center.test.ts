@@ -10,8 +10,7 @@ import {
   testDatabaseUrl,
   uniqueSlug,
   verifyMerchantViaApi,
-  type TestUser,
-} from './helpers.js';
+  type TestUser, makeStaff } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -46,7 +45,7 @@ async function createMerchant(user: TestUser) {
 beforeAll(async () => {
   await app.ready();
   [admin, owner, staff, rival] = await Promise.all([registerUser(app), registerUser(app), registerUser(app), registerUser(app)]);
-  await db.update(s.users).set({ role: 'admin' }).where(eq(s.users.id, admin.userId));
+  await makeStaff(db, admin.userId, 'super_admin');
   merchantId = await createMerchant(owner);
   rivalMerchantId = await createMerchant(rival);
   await verifyMerchantViaApi(app, owner, admin, merchantId);

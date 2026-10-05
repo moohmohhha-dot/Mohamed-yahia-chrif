@@ -12,11 +12,13 @@ import {
   pgTable,
   primaryKey,
   text,
+  timestamp,
   uniqueIndex,
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core';
 import { id, recordStatus, timestamps } from './common.js';
+import { users } from './identity.js';
 import { merchants } from './merchants.js';
 import { locales } from './reference.js';
 import { stores } from './tenancy.js';
@@ -87,6 +89,12 @@ export const products = pgTable(
     status: recordStatus('status').notNull().default('draft'),
     /** Vertical-specific data. For perfumes: { gender, concentration, notes: { top, heart, base } } */
     attributes: jsonb('attributes').$type<Record<string, unknown>>().notNull().default({}),
+    /** Taken off sale by ARUMA (moderation): the merchant cannot publish it again until ARUMA unblocks it. */
+    blockedAt: timestamp('blocked_at', { withTimezone: true }),
+    blockedBy: uuid('blocked_by').references(() => users.id, { onDelete: 'restrict' }),
+    blockReason: text('block_reason'),
+    /** The status to restore when unblocked. */
+    blockedFromStatus: recordStatus('blocked_from_status'),
     ...timestamps,
   },
   (t) => [

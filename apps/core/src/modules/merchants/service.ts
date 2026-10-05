@@ -1,7 +1,7 @@
 import { and, asc, eq, exists, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import type { Executor } from '../../shared/db.js';
-import { conflict, forbidden, isUniqueViolation, notFound } from '../../shared/errors.js';
+import { AppError, conflict, forbidden, isUniqueViolation, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { findUserIdByEmail } from '../identity/index.js';
 import { audit, recordEvent } from '../platform/index.js';
@@ -48,6 +48,18 @@ export async function createMerchant(
 }
 
 /** Returns the caller's role in the merchant, throwing 404 if they are not a member (so non-members learn nothing). */
+/**
+ * ARUMA staff never decide about a merchant they belong to (verification, suspension, commission,
+ * payouts, products, returns, disputes, reviews): another staff member must.
+ */
+export async function assertNoConflictOfInterest(db: Executor, staffUserId: string, merchantId: string) {
+  const [m] = await db
+    .select({ role: s.merchantMembers.role })
+    .from(s.merchantMembers)
+    .where(and(eq(s.merchantMembers.merchantId, merchantId), eq(s.merchantMembers.userId, staffUserId)));
+  if (m) throw new AppError(403, 'CONFLICT_OF_INTEREST', 'You are a member of this merchant: another ARUMA staff member must handle it');
+}
+
 export async function requireMembership(
   db: Executor,
   merchantId: string,

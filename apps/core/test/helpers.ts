@@ -3,12 +3,13 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
-import type { Database } from '@aruma/db';
+import { schema, type Database } from '@aruma/db';
 import { buildPaymentsApp, createPaymentsDb, createSandboxProvider, deliverEvents } from '@aruma/payments';
 import { buildApp, type AppOptions } from '../src/app.js';
 import { createHttpPaymentsClient } from '../src/modules/payments/index.js';
 import { createLocalStorage, createSecretBox, type OutboundMessage } from '../src/modules/platform/index.js';
 import { createSandboxCourier } from '../src/modules/shipping/index.js';
+import type { StaffRole } from '../src/modules/identity/index.js';
 
 export const testDatabaseUrl =
   process.env.TEST_DATABASE_URL ?? 'postgres://aruma:aruma@localhost:5432/aruma_test';
@@ -219,4 +220,9 @@ export async function cheapestDelivery(app: FastifyInstance, lines: { offerId: s
   return (res.json().data.sellers as { merchantId: string; options: { methodId: string }[] }[])
     .filter((seller) => seller.options.length)
     .map((seller) => ({ merchantId: seller.merchantId, methodId: seller.options[0]!.methodId }));
+}
+
+/** Makes a test user ARUMA staff (directly in the database, like the first super admin on a server). */
+export async function makeStaff(db: Database, userId: string, ...roles: StaffRole[]) {
+  for (const role of roles) await db.insert(schema.staffRoleGrants).values({ userId, role, reason: 'test' });
 }

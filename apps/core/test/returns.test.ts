@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
 import { escalateOverdueReturns } from '../src/modules/returns/index.js';
-import { bearer, buildTestApp, caller, dzAddress, multipartFile, PNG, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
+import { bearer, buildTestApp, caller, dzAddress, multipartFile, PNG, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser, makeStaff } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -90,7 +90,7 @@ async function throughInspection(ret: any, inspection: object = {}) {
 beforeAll(async () => {
   await app.ready();
   [admin, owner, staff, customer, stranger] = await Promise.all([registerUser(app), registerUser(app), registerUser(app), registerUser(app), registerUser(app)]);
-  await db.update(s.users).set({ role: 'admin' }).where(eq(s.users.id, admin.userId));
+  await makeStaff(db, admin.userId, 'super_admin');
   const slug = uniqueSlug();
   merchantId = (
     await call('POST', '/v1/merchants', owner.token, {

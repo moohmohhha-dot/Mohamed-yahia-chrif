@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
 import { escalateUnanswered, finalizeDueDisputes } from '../src/modules/disputes/index.js';
-import { bearer, buildTestApp, caller, dzAddress, multipartFile, PNG, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
+import { bearer, buildTestApp, caller, dzAddress, multipartFile, PNG, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser, makeStaff } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -12,6 +12,7 @@ const call = caller(app);
 let admin: TestUser;
 let admin2: TestUser;
 let support: TestUser;
+let financeAdmin: TestUser;
 let owner: TestUser;
 let staff: TestUser;
 let customer: TestUser;
@@ -79,9 +80,11 @@ const decision = (outcome: string, remedy: string, amountMinor?: number) => ({ o
 beforeAll(async () => {
   await app.ready();
   [admin, admin2, support, owner, staff, customer, stranger, otherOwner] = (await Promise.all(Array.from({ length: 8 }, () => registerUser(app)))) as [TestUser, TestUser, TestUser, TestUser, TestUser, TestUser, TestUser, TestUser];
-  await db.update(s.users).set({ role: 'admin' }).where(eq(s.users.id, admin.userId));
-  await db.update(s.users).set({ role: 'admin' }).where(eq(s.users.id, admin2.userId));
-  await db.update(s.users).set({ role: 'support' }).where(eq(s.users.id, support.userId));
+  await makeStaff(db, admin.userId, 'super_admin');
+  await makeStaff(db, admin2.userId, 'super_admin');
+  await makeStaff(db, support.userId, 'support_admin');
+  financeAdmin = await registerUser(app);
+  await makeStaff(db, financeAdmin.userId, 'finance_admin');
   const newMerchant = async (user: TestUser, name: string) => {
     const slug = uniqueSlug();
     const id = (
@@ -184,7 +187,7 @@ describe('customer ↔ merchant, end to end', () => {
     const internalFile = await ok(await upload(`/v1/admin/disputes/${d.id}/files?kind=document&internal=true`, support), 201);
     await ok(await adm(`/${d.id}/messages`, { body: 'Nous examinons votre dossier.' }, support), 201);
     expect((await me(`/${d.id}/escalate`, { reason: 'Le vendeur refuse de rembourser.' })).statusCode).toBe(200);
-    expect((await adm(`/${d.id}/decision`, decision('claimant', 'refund', DZD(5_300)), support)).statusCode).toBe(403);
+    expect((await adm(`/${d.id}/decision`, decision('claimant', 'refund', DZD(5_300)), financeAdmin)).statusCode).toBe(403); // Finance sends refunds, does not decide disputes
     expect(code(await adm(`/${d.id}/decision`, decision('claimant', 'refund', DZD(9_000))))).toBe('REMEDY_EXCEEDS_ORDER');
     expect(code(await adm(`/${d.id}/decision`, decision('respondent', 'refund', DZD(100))))).toBe('INVALID_REMEDY');
     expect(code(await adm(`/${d.id}/decision`, decision('claimant', 'merchant_compensation', DZD(100))))).toBe('INVALID_REMEDY');

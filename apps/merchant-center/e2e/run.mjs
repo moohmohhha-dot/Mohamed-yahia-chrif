@@ -210,7 +210,7 @@ try {
   const admin = await call('POST', '/v1/auth/register', null, { email: adminEmail, password: 'a strong password', displayName: 'Admin' });
   const db = new pg.Client({ connectionString: DATABASE_URL });
   await db.connect();
-  await db.query(`update users set role = 'admin' where email = $1`, [adminEmail]);
+  await db.query(`insert into staff_role_grants (user_id, role, reason) select id, 'super_admin', 'e2e' from users where email = $1`, [adminEmail]);
   await db.end();
   await call('POST', `/v1/merchants/${merchantId}/verifications/email/send-code`, owner.token);
   await call('POST', `/v1/merchants/${merchantId}/verifications/email/confirm`, owner.token, { code: await codeFor(ownerEmail) });
@@ -514,7 +514,7 @@ try {
   const admin2 = await call('POST', '/v1/auth/register', null, { email: admin2Email, password: 'a strong password', displayName: 'Admin 2' });
   const db2 = new pg.Client({ connectionString: DATABASE_URL });
   await db2.connect();
-  await db2.query(`update users set role = 'admin' where email = $1`, [admin2Email]);
+  await db2.query(`insert into staff_role_grants (user_id, role, reason) select id, 'super_admin', 'e2e' from users where email = $1`, [admin2Email]);
   await db2.end();
   const upheld = await call('POST', `/v1/admin/disputes/${opened.data.id}/appeal-decision`, admin2.token, { result: 'upheld', text: 'Décision confirmée après nouvel examen du dossier.' });
   check(String(sameAdmin).includes('403') && upheld.status === 'resolved', 'the appeal is decided by another administrator, never the first one');

@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { badRequest } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
-import { authOf, requireAuth, requireRole } from '../identity/index.js';
+import { authOf, can, requireAuth } from '../identity/index.js';
 import { verifyPaymentEvent } from '../payments/index.js';
 import { CALL_OUTCOMES, FAILURE_REASONS, REFUSAL_REASONS } from '../cod/index.js';
 import { placeOrders, previewDelivery } from './checkout.js';
@@ -244,20 +244,19 @@ export async function orderRoutes(app: FastifyInstance) {
 
   // --- Platform -----------------------------------------------------------------------------------
 
-  const staff = { preHandler: requireRole('admin', 'support') };
 
-  app.get('/v1/admin/orders', staff, async (req) => {
+  app.get('/v1/admin/orders', can('orders.read'), async (req) => {
     const filter = listQuery.extend({ merchantId: z.uuid().optional() }).parse(req.query);
     return { data: await listAllOrders(app.db, filter) };
   });
 
-  app.get('/v1/admin/orders/:orderId', staff, async (req) => {
+  app.get('/v1/admin/orders/:orderId', can('orders.read'), async (req) => {
     const { orderId } = orderParams.parse(req.params);
     return { data: await getOrder(app.db, as(req, 'platform'), orderId) };
   });
 
   /** Refunds are for admins only (money); support staff handle the rest of the flow. */
-  app.post('/v1/admin/orders/:orderId/status', staff, async (req) => {
+  app.post('/v1/admin/orders/:orderId/status', can('orders.manage'), async (req) => {
     const { orderId } = orderParams.parse(req.params);
     const body = transitionBody.parse(req.body);
     const actor = as(req, 'platform');
@@ -266,7 +265,7 @@ export async function orderRoutes(app: FastifyInstance) {
   });
 
   /** Support can correct a parcel's status, including one tracked by a courier API (e.g. when the courier is down). */
-  app.post('/v1/admin/orders/:orderId/shipment/status', staff, async (req) => {
+  app.post('/v1/admin/orders/:orderId/shipment/status', can('orders.manage'), async (req) => {
     const { orderId } = orderParams.parse(req.params);
     const actor = as(req, 'platform');
     const body = shipmentStatusBody.extend({ note: z.string().trim().min(3).max(500) }).parse(req.body);
@@ -275,7 +274,7 @@ export async function orderRoutes(app: FastifyInstance) {
   });
 
   /** ARUMA support can make the confirmation call for a merchant. */
-  app.post('/v1/admin/orders/:orderId/cod/calls', staff, async (req) => {
+  app.post('/v1/admin/orders/:orderId/cod/calls', can('orders.manage'), async (req) => {
     const { orderId } = orderParams.parse(req.params);
     const actor = as(req, 'platform');
     await recordConfirmationCall(app.db, deps(), actor, orderId, callBody.parse(req.body));
@@ -283,7 +282,7 @@ export async function orderRoutes(app: FastifyInstance) {
   });
 
   /** Refund or Partial Refund: administrators only, with an Idempotency-Key. */
-  app.post('/v1/admin/orders/:orderId/refunds', { preHandler: requireRole('admin') }, async (req) => {
+  app.post('/v1/admin/orders/:orderId/refunds', can('refunds.execute'), async (req) => {
     const { orderId } = orderParams.parse(req.params);
     const key = req.headers['idempotency-key'];
     if (typeof key !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(key)) throw badRequest('IDEMPOTENCY_KEY_REQUIRED', 'Send an Idempotency-Key header');

@@ -5,6 +5,7 @@
  * The full map of planned modules is in docs/CORE.md.
  */
 import type { FastifyInstance } from 'fastify';
+import { adminRoutes } from './admin/index.js';
 import { catalogRoutes, merchantCatalogRoutes } from './catalog/index.js';
 import { codRoutes } from './cod/index.js';
 import { disputeRoutes } from './disputes/index.js';
@@ -37,6 +38,7 @@ export async function registerModules(app: FastifyInstance, options: ModuleOptio
   await app.register(returnRoutes);
   await app.register(reviewRoutes);
   await app.register(disputeRoutes);
+  await app.register(adminRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantCenterRoutes);
 }

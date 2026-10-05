@@ -2,8 +2,10 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { z } from 'zod';
 import { badRequest } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
-import { authOf, requireAuth, requireRole } from '../identity/index.js';
-import { requireMembership } from '../merchants/index.js';
+import { authOf, can, requireAuth } from '../identity/index.js';
+import { schema as s } from '@aruma/db';
+import { eq } from 'drizzle-orm';
+import { assertNoConflictOfInterest, requireMembership } from '../merchants/index.js';
 import {
   addReviewMedia,
   adminReview,
@@ -41,7 +43,7 @@ const reportBody = z.object({ reason: z.enum(['fake', 'spam', 'offensive', 'pers
 /** Public ratings; customers write, vote and report; merchants read, reply and report; ARUMA moderates. */
 export async function reviewRoutes(app: FastifyInstance) {
   const auth = { preHandler: requireAuth };
-  const staff = { preHandler: requireRole('admin', 'support') };
+  const staff = can('reviews.moderate');
   const actor = (req: FastifyRequest, type: ReviewActor['type']) => ({ ...actorFrom(req), userId: authOf(req).userId, type });
 
   // --- Public -------------------------------------------------------------------------------------------
@@ -141,6 +143,8 @@ export async function reviewRoutes(app: FastifyInstance) {
   app.post('/v1/admin/reviews/:reviewId/moderate', staff, async (req) => {
     const { reviewId } = reviewParams.parse(req.params);
     const body = z.object({ action: z.enum(['publish', 'reject', 'hide', 'restore']), note: z.string().trim().min(3).max(1000) }).parse(req.body);
+    const [review] = await app.db.select({ merchantId: s.reviews.merchantId }).from(s.reviews).where(eq(s.reviews.id, reviewId));
+    if (review) await assertNoConflictOfInterest(app.db, authOf(req).userId, review.merchantId);
     return { data: await moderateReview(app.db, actor(req, 'platform'), reviewId, body) };
   });
 }

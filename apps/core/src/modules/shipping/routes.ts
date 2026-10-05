@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { schema as s } from '@aruma/db';
 import { notFound } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
-import { authOf, requireAuth, requireRole } from '../identity/index.js';
+import { authOf, can, requireAuth } from '../identity/index.js';
 import { requireMembership, type MerchantRole } from '../merchants/index.js';
 import { audit } from '../platform/index.js';
 import { listAreas } from './geo.js';
@@ -49,7 +49,7 @@ const rateBody = z.object({
 /** Areas, couriers and pickup points (public); merchants' delivery settings; courier and relay-point management (platform). */
 export async function shippingRoutes(app: FastifyInstance) {
   const auth = { preHandler: requireAuth };
-  const admin = { preHandler: requireRole('admin') };
+  const admin = can('shipping.manage');
   const actor = (req: FastifyRequest) => ({ ...actorFrom(req), userId: authOf(req).userId });
   /** Delivery settings decide prices: owners and managers only. Courier credentials: owners only. */
   const asMember = async (req: FastifyRequest, roles: MerchantRole[] = ['owner', 'manager']) => {

@@ -22,7 +22,7 @@ describe('registration', () => {
     expect(token).toMatch(/^aru_/);
 
     const [user] = await db.select().from(s.users).where(eq(s.users.id, userId));
-    expect(user).toMatchObject({ email, role: 'user', locale: 'ar', country: 'DZ' });
+    expect(user).toMatchObject({ email, locale: 'ar', country: 'DZ' });
     const accounts = await db.select().from(s.accounts).where(eq(s.accounts.userId, userId));
     expect(accounts).toHaveLength(1);
     expect(accounts[0]!.passwordHash).toMatch(/^scrypt\$/);

@@ -148,6 +148,9 @@ export async function updateProduct(
 ) {
   await requireMembership(db, merchantId, actor.userId, ['owner', 'manager']);
   const existing = await getOwnProduct(db, merchantId, productId);
+  if (existing.blockedAt && input.status) {
+    throw new AppError(409, 'PRODUCT_BLOCKED', 'ARUMA took this product off sale; contact ARUMA support', { reason: existing.blockReason });
+  }
   const store = await getStoreById(db, existing.storeId);
   if (input.translations) checkTranslations(store, input.translations, false);
 
@@ -248,6 +251,8 @@ async function describeProducts(db: Executor, products: (typeof s.products.$infe
     slug: p.slug,
     storeSlug: p.storeSlug,
     status: p.status,
+    /** Taken off sale by ARUMA, with the reason the merchant sees. */
+    blocked: p.blockedAt ? { at: p.blockedAt, reason: p.blockReason } : null,
     attributes: p.attributes,
     ownedByMe: p.createdByMerchantId === merchantId,
     translations: translations.filter((t) => t.productId === p.id).map(({ locale, name, description }) => ({ locale, name, description })),

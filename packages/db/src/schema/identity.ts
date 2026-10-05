@@ -11,8 +11,6 @@ import { id, timestamps } from './common.js';
 import { countries, locales } from './reference.js';
 
 export const userStatus = pgEnum('user_status', ['active', 'suspended', 'deleted']);
-/** Platform-wide role. Merchant roles live in merchant_members. */
-export const platformRole = pgEnum('platform_role', ['user', 'support', 'admin']);
 
 export const users = pgTable(
   'users',
@@ -23,7 +21,6 @@ export const users = pgTable(
     displayName: text('display_name').notNull(),
     locale: varchar('locale', { length: 16 }).references(() => locales.code),
     country: char('country', { length: 2 }).references(() => countries.code),
-    role: platformRole('role').notNull().default('user'),
     status: userStatus('status').notNull().default('active'),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     phoneVerifiedAt: timestamp('phone_verified_at', { withTimezone: true }),

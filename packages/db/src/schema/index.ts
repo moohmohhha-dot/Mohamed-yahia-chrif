@@ -14,3 +14,4 @@ export * from './cod.js';
 export * from './returns.js';
 export * from './reviews.js';
 export * from './disputes.js';
+export * from './staff.js';

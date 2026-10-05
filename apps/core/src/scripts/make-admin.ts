@@ -1,5 +1,9 @@
-/** Promotes an existing user to platform admin: pnpm --filter @aruma/core make-admin someone@example.com */
-import { eq } from 'drizzle-orm';
+/**
+ * Makes an existing user a Super Admin, from the server's command line. This is how the first super
+ * admin is created; after that, super admins grant roles from the Admin Panel.
+ *   pnpm --filter @aruma/core make-admin someone@example.com
+ */
+import { and, eq, isNull } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
 import { audit } from '../modules/platform/index.js';
 
@@ -13,11 +17,17 @@ if (!email || !url) {
 const { db, pool } = createDb(url);
 try {
   await db.transaction(async (tx) => {
-    const [user] = await tx.update(s.users).set({ role: 'admin' }).where(eq(s.users.email, email)).returning();
+    const [user] = await tx.select().from(s.users).where(eq(s.users.email, email));
     if (!user) throw new Error(`No user with email ${email}`);
-    await audit(tx, null, { action: 'identity.user.promoted_admin', entityType: 'user', entityId: user.id });
+    const [held] = await tx
+      .select()
+      .from(s.staffRoleGrants)
+      .where(and(eq(s.staffRoleGrants.userId, user.id), eq(s.staffRoleGrants.role, 'super_admin'), isNull(s.staffRoleGrants.revokedAt)));
+    if (held) return;
+    await tx.insert(s.staffRoleGrants).values({ userId: user.id, role: 'super_admin', reason: 'Granted from the server command line' });
+    await audit(tx, null, { action: 'staff.role.granted', entityType: 'user', entityId: user.id, metadata: { role: 'super_admin', via: 'cli' } });
   });
-  console.log(`${email} is now an admin`);
+  console.log(`${email} is a super admin`);
 } finally {
   await pool.end();
 }

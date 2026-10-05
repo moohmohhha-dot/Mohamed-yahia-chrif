@@ -15,8 +15,7 @@ import {
   testDatabaseUrl,
   uniqueSlug,
   verifyMerchantViaApi,
-  type TestUser,
-} from './helpers.js';
+  type TestUser, makeStaff } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -48,7 +47,7 @@ const refund = (orderId: string, body: object) =>
 beforeAll(async () => {
   await app.ready();
   [admin, owner, customer] = await Promise.all([registerUser(app), registerUser(app), registerUser(app)]);
-  await db.update(s.users).set({ role: 'admin' }).where(eq(s.users.id, admin.userId));
+  await makeStaff(db, admin.userId, 'super_admin');
   const slug = uniqueSlug();
   merchantId = (
     await call('POST', '/v1/merchants', owner.token, {
