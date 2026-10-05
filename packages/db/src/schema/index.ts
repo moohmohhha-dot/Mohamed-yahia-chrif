@@ -12,3 +12,4 @@ export * from './finance.js';
 export * from './shipping.js';
 export * from './cod.js';
 export * from './returns.js';
+export * from './reviews.js';

@@ -112,6 +112,7 @@ export async function seed(db: Database): Promise<void> {
         { key: 'checkout.cash_on_delivery', description: 'Cash on delivery at checkout', enabledByDefault: true },
         { key: 'checkout.online_payment', description: 'Online card payment at checkout', enabledByDefault: false },
         { key: 'shipping.pickup_points', description: 'Delivery to pickup points / courier desks', enabledByDefault: false },
+        { key: 'reviews.media', description: 'Photos in reviews (moderated before publication)', enabledByDefault: false },
       ])
       .onConflictDoNothing();
 

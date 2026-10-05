@@ -162,6 +162,20 @@
       "when": 1791158634249,
       "tag": "0022_order_guard_credit",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1791238106931,
+      "tag": "0023_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1791238108406,
+      "tag": "0024_reviews_guards",
+      "breakpoints": true
     }
   ]
 }

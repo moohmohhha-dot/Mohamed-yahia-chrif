@@ -1,3 +1,4 @@
+import { emptySummary, ratingSummaries } from '../reviews/index.js';
 import { and, asc, count, desc, eq, exists, inArray, sql } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import { notFound } from '../../shared/errors.js';
@@ -191,6 +192,8 @@ export async function getProduct(
       attributes: p.attributes,
       categories: categories.map((c) => c.slug),
       images,
+      /** Published reviews from verified buyers (details: GET /v1/products/:id/reviews). */
+      rating: (await ratingSummaries(db, { productIds: [p.id] })).get(p.id) ?? emptySummary(),
       variants: variants.map((v) => {
         const own = offers.filter((o) => o.variantId === v.id);
         const best = pickBestOffer(own);
