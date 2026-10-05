@@ -8,7 +8,9 @@
  */
 import { sql } from 'drizzle-orm';
 import { bigint, char, check, index, integer, jsonb, pgEnum, pgTable, text, timestamp, uniqueIndex, uuid, varchar, type AnyPgColumn } from 'drizzle-orm/pg-core';
-import { id } from './common.js';
+import { id, orderActorType } from './common.js';
+
+export { orderActorType };
 import { users } from './identity.js';
 import { merchants } from './merchants.js';
 import { offers } from './offers.js';
@@ -30,7 +32,6 @@ export const orderStatus = pgEnum('order_status', [
 export const paymentMethod = pgEnum('payment_method', ['cash_on_delivery', 'online']);
 /** Mirrors the Payment Service's status for this order's money (kept in sync by signed payment events). */
 export const orderPaymentStatus = pgEnum('order_payment_status', ['pending', 'successful', 'failed', 'cancelled', 'refunded']);
-export const orderActorType = pgEnum('order_actor_type', ['customer', 'merchant', 'platform', 'system']);
 
 /** One checkout submission; makes "place order" safe to retry (Idempotency-Key). */
 export const checkouts = pgTable(
@@ -118,6 +119,12 @@ export const orders = pgTable(
     paymentIntentId: varchar('payment_intent_id', { length: 64 }),
     /** Money given back for this order so far (partial or full refunds). */
     refundedMinor: bigint('refunded_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+    /** Part of the total paid with the customer's store credit (the rest is paid online or in cash). */
+    creditAppliedMinor: bigint('credit_applied_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+    /** Value given back to the customer as store credit (restored credit, or a return resolved with credit). */
+    creditReturnedMinor: bigint('credit_returned_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+    /** A free replacement sent for an item returned from this earlier order. */
+    replacementForOrderId: uuid('replacement_for_order_id').references((): AnyPgColumn => orders.id, { onDelete: 'restrict' }),
     shippingAddress: jsonb('shipping_address').$type<ShippingAddress>().notNull(),
     shippingMethodId: uuid('shipping_method_id').references((): AnyPgColumn => shippingMethods.id, { onDelete: 'restrict' }),
     delivery: jsonb('delivery').$type<OrderDelivery>(),
@@ -130,7 +137,11 @@ export const orders = pgTable(
     index('orders_customer_idx').on(t.customerUserId, t.placedAt),
     index('orders_checkout_idx').on(t.checkoutId),
     check('orders_total_consistent', sql`${t.totalMinor} = ${t.subtotalMinor} + ${t.shippingMinor}`),
-    check('orders_refund_bounds', sql`${t.refundedMinor} >= 0 and ${t.refundedMinor} <= ${t.totalMinor}`),
+    // Money refunded can never exceed what was paid in money; money + credit given back never exceed the total.
+    check(
+      'orders_refund_bounds',
+      sql`${t.refundedMinor} >= 0 and ${t.creditReturnedMinor} >= 0 and ${t.creditAppliedMinor} >= 0 and ${t.creditAppliedMinor} <= ${t.totalMinor} and ${t.refundedMinor} <= ${t.totalMinor} - ${t.creditAppliedMinor} and ${t.refundedMinor} + ${t.creditReturnedMinor} <= ${t.totalMinor}`,
+    ),
   ],
 );
 

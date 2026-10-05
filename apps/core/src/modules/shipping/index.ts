@@ -6,7 +6,9 @@ export { shippingRoutes } from './routes.js';
 export { resolveAddress, resolveLocality, normalizePhone, type AddressInput } from './geo.js';
 export { chooseDelivery, deliveryOptions, type DeliveryOption } from './quotes.js';
 export {
+  activeReturnShipment,
   activeShipment,
+  openReturnShipment,
   describeShipment,
   destinationOf,
   findShipmentByTracking,

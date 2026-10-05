@@ -6,3 +6,4 @@ export { createSecretBox, type SecretBox } from './secret-box.js';
 export { createLocalStorage, type FileStorage } from './storage.js';
 export { createLogMessageSender, type MessageSender, type OutboundMessage } from './messages.js';
 export { consumeVerificationCode, issueVerificationCode } from './verification-codes.js';
+export { detectContentType } from './files.js';

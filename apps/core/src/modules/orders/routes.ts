@@ -70,6 +70,8 @@ const checkoutBody = z.object({
     .min(1)
     .max(50),
   customerNote: z.string().trim().max(1000).optional(),
+  /** Pay with store credit first; the rest is paid with the chosen method. */
+  useStoreCredit: z.boolean().optional(),
 });
 
 export async function orderRoutes(app: FastifyInstance) {
@@ -96,7 +98,7 @@ export async function orderRoutes(app: FastifyInstance) {
     const body = checkoutBody.parse(req.body);
     const result = await placeOrders(app.db, { userId: authOf(req).userId, ip: req.ip ?? null }, storeSlug, key, body);
     let payment: Record<string, unknown> | null = null;
-    if (body.paymentMethod === 'online') {
+    if (body.paymentMethod === 'online' && result.amountToPayMinor > 0n) {
       // Start (or, on a retried request, fetch) the payment. If the Payment Service is down, the orders
       // exist and the customer can start the payment again from the retry endpoint.
       payment = await startCheckoutPayment(app.db, app.payments, result.checkoutId, {

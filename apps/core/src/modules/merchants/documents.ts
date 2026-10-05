@@ -3,23 +3,12 @@ import { and, eq, isNull, ne } from 'drizzle-orm';
 import { schema as s, type Database } from '@aruma/db';
 import { badRequest, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
-import { audit, type FileStorage, type SecretBox } from '../platform/index.js';
+import { audit, detectContentType, type FileStorage, type SecretBox } from '../platform/index.js';
 import { DOCUMENT_CHECK, type DocumentKind } from './requirements.js';
 import { requireMembership, type MerchantRole } from './service.js';
 import { invalidateCheck, recomputeStatus } from './verification.js';
 
 export const MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
-
-/** Detects the real file type from its first bytes; the client-declared type is not trusted. */
-export function detectContentType(body: Buffer): string | null {
-  if (body.subarray(0, 5).toString('latin1') === '%PDF-') return 'application/pdf';
-  if (body[0] === 0xff && body[1] === 0xd8 && body[2] === 0xff) return 'image/jpeg';
-  if (body.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png';
-  if (body.subarray(0, 4).toString('latin1') === 'RIFF' && body.subarray(8, 12).toString('latin1') === 'WEBP') {
-    return 'image/webp';
-  }
-  return null;
-}
 
 /** Identity and payout documents are the most sensitive: only the owner may upload or download them. */
 export const rolesForDocument = (kind: DocumentKind): MerchantRole[] =>

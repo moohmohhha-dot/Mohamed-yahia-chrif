@@ -63,7 +63,7 @@ export async function createOrderShipment(db: Database, deps: OrderDeps, actor: 
     parcel = await adapter.createParcel(credentials, {
       reference: order.number,
       destination: destinationOf(order),
-      codAmountMinor: order.paymentMethod === 'cash_on_delivery' ? Number(order.totalMinor - order.refundedMinor) : 0,
+      codAmountMinor: order.paymentMethod === 'cash_on_delivery' && order.paymentStatus !== 'successful' ? Number(order.totalMinor - order.refundedMinor - order.creditAppliedMinor) : 0,
       currency: order.currency,
       declaredValueMinor: Number(order.subtotalMinor),
       items: lines.map((l) => ({ name: l.productNames.fr ?? Object.values(l.productNames)[0] ?? l.sku, quantity: l.quantity })),
@@ -167,7 +167,8 @@ export async function handleCourierWebhook(
   let applied = 0;
   for (const event of events) {
     const shipment = await findShipmentByTracking(db, account.courierCode, event.trackingNumber);
-    if (!shipment || shipment.courierAccountId !== account.id) continue; // not a parcel of this account
+    // Not a parcel of this account (return pickups are entered by hand for now).
+    if (!shipment || shipment.courierAccountId !== account.id || shipment.direction !== 'outbound') continue;
     const done = await updateOrderShipment(
       db,
       deps,

@@ -12,6 +12,7 @@ import { reserveStock } from '../inventory/index.js';
 import { loadSellableOffers } from '../offers/index.js';
 import { audit, evaluateFlags, recordEvent } from '../platform/index.js';
 import { openCodRecord } from '../cod/index.js';
+import { spendStoreCredit, storeCreditBalance } from '../finance/index.js';
 import { codCheckout } from './cod-flow.js';
 import { chooseDelivery, deliveryOptions, resolveAddress, resolveLocality, type AddressInput } from '../shipping/index.js';
 import { getActiveStore, resolveCurrency } from '../stores/index.js';
@@ -26,6 +27,8 @@ export type CheckoutInput = {
   shippingAddress: AddressInput;
   /** One choice per merchant in the cart. */
   delivery: DeliveryChoice[];
+  /** Pay with the customer's store credit first (the rest online or in cash). */
+  useStoreCredit?: boolean;
   customerNote?: string;
 };
 
@@ -41,7 +44,13 @@ async function existingCheckout(db: Database | Transaction, customerUserId: stri
     .where(and(eq(s.checkouts.customerUserId, customerUserId), eq(s.checkouts.idempotencyKey, key)));
   if (!checkout) return null;
   const orders = await db.select().from(s.orders).where(eq(s.orders.checkoutId, checkout.id));
-  return { checkoutId: checkout.id, orderIds: orders.map((o) => o.id), replayed: true, codConfirmationRequired: false };
+  return {
+    checkoutId: checkout.id,
+    orderIds: orders.map((o) => o.id),
+    replayed: true,
+    codConfirmationRequired: false,
+    amountToPayMinor: orders.reduce((sum, o) => sum + o.totalMinor - o.creditAppliedMinor, 0n),
+  };
 }
 
 export async function placeOrders(
@@ -112,6 +121,8 @@ export async function placeOrders(
       }
 
       const orderIds: string[] = [];
+      // Store credit available for this checkout (row locked until commit, so it cannot be spent twice).
+      let credit = input.useStoreCredit ? await storeCreditBalance(tx, customer.userId, currency.code, true) : 0n;
       for (const [merchantId, offers] of [...byMerchant.entries()].sort(([a], [b]) => a.localeCompare(b))) {
         const lines = offers.map((offer) => {
           const variant = variants.find((v) => v.id === offer.variantId)!;
@@ -145,6 +156,9 @@ export async function placeOrders(
           paymentMethod: input.paymentMethod,
           pickupPoints: Boolean(flags['shipping.pickup_points']),
         });
+        const total = subtotal + shipping;
+        const creditApplied = credit < total ? credit : total;
+        credit -= creditApplied;
         const [order] = await tx
           .insert(s.orders)
           .values({
@@ -156,7 +170,10 @@ export async function placeOrders(
             currency: currency.code,
             subtotalMinor: subtotal,
             shippingMinor: shipping,
-            totalMinor: subtotal + shipping,
+            totalMinor: total,
+            creditAppliedMinor: creditApplied,
+            // Fully paid with store credit: nothing left to pay online or in cash.
+            ...(creditApplied === total ? { paymentStatus: 'successful' as const } : {}),
             // Commission and fee in force now are frozen in the order (configurable, see finance rules).
             commissionBps: await resolveCommissionBps(tx, store.id, merchantId),
             merchantFeeMinor: orderFee,
@@ -181,7 +198,8 @@ export async function placeOrders(
           lines: lines.map((l) => ({ offerId: l.offerId, quantity: l.quantity })),
           actorUserId: customer.userId,
         });
-        if (cod) {
+        await spendStoreCredit(tx, order!);
+        if (cod && creditApplied < total) {
           if (cod.policy.maxAmountMinor !== null && order!.totalMinor > cod.policy.maxAmountMinor) {
             throw new AppError(409, 'COD_AMOUNT_TOO_HIGH', 'This order is above the cash-on-delivery limit; pay online', {
               merchantId,
@@ -199,7 +217,11 @@ export async function placeOrders(
         });
         orderIds.push(order!.id);
       }
-      return { checkoutId: checkout!.id, orderIds, replayed: false, codConfirmationRequired: Boolean(cod?.policy.requireConfirmation) };
+      const toPay = (await tx.select({ total: s.orders.totalMinor, credit: s.orders.creditAppliedMinor }).from(s.orders).where(eq(s.orders.checkoutId, checkout!.id))).reduce(
+        (sum, o) => sum + o.total - o.credit,
+        0n,
+      );
+      return { checkoutId: checkout!.id, orderIds, replayed: false, codConfirmationRequired: Boolean(cod?.policy.requireConfirmation) && toPay > 0n, amountToPayMinor: toPay };
     });
   } catch (error) {
     // Two identical submissions at the same moment: the second one returns the first one's orders.
@@ -240,4 +262,68 @@ export async function previewDelivery(
     });
   }
   return { currency: currency.code, sellers: result, unavailableOfferIds: [...quantities.keys()].filter((id) => !sellable.some((o) => o.offerId === id)) };
+}
+
+/**
+ * A free replacement for returned items: a new order (total 0, nothing to pay) to the same address with
+ * the same delivery method, linked to the original. Stock is reserved now; it fails if none is left.
+ */
+export async function placeReplacementOrder(
+  tx: Transaction,
+  original: typeof s.orders.$inferSelect,
+  input: { returnId: string; returnNumber: string; lines: { orderLineId: string; quantity: number }[] },
+) {
+  const [checkout] = await tx
+    .insert(s.checkouts)
+    .values({ storeId: original.storeId, customerUserId: original.customerUserId, idempotencyKey: `replacement:${input.returnId}` })
+    .returning();
+  const originalLines = await tx.select().from(s.orderLines).where(eq(s.orderLines.orderId, original.id));
+  const [order] = await tx
+    .insert(s.orders)
+    .values({
+      number: await nextOrderNumber(tx),
+      checkoutId: checkout!.id,
+      storeId: original.storeId,
+      merchantId: original.merchantId,
+      customerUserId: original.customerUserId,
+      currency: original.currency,
+      subtotalMinor: 0n,
+      shippingMinor: 0n,
+      totalMinor: 0n,
+      commissionBps: original.commissionBps,
+      merchantFeeMinor: 0n,
+      paymentMethod: original.paymentMethod,
+      paymentStatus: 'successful', // nothing to pay
+      shippingAddress: original.shippingAddress,
+      shippingMethodId: original.shippingMethodId,
+      delivery: original.delivery,
+      replacementForOrderId: original.id,
+      customerNote: `Replacement — return ${input.returnNumber}`,
+    })
+    .returning();
+  const lines = input.lines.map((l) => {
+    const line = originalLines.find((o) => o.id === l.orderLineId)!;
+    return {
+      orderId: order!.id,
+      offerId: line.offerId,
+      variantId: line.variantId,
+      sku: line.sku,
+      productNames: line.productNames,
+      options: line.options,
+      quantity: l.quantity,
+      unitPriceMinor: 0n,
+      lineTotalMinor: 0n,
+    };
+  });
+  await tx.insert(s.orderLines).values(lines);
+  await tx.insert(s.orderStatusHistory).values({ orderId: order!.id, fromStatus: null, toStatus: 'new', actorType: 'system', note: `Replacement for ${original.number}` });
+  // Throws OUT_OF_STOCK when nothing is left to send.
+  await reserveStock(tx, { reference: { type: 'order', id: order!.id }, lines: lines.map((l) => ({ offerId: l.offerId, quantity: l.quantity })), actorUserId: null });
+  await recordEvent(tx, {
+    type: 'orders.order.placed',
+    aggregateType: 'order',
+    aggregateId: order!.id,
+    payload: { number: order!.number, merchantId: original.merchantId, storeId: original.storeId, total: '0', currency: original.currency, replacementFor: original.id },
+  });
+  return order!;
 }

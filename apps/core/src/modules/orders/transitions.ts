@@ -26,7 +26,8 @@ export const TRANSITIONS: Record<OrderStatus, Partial<Record<OrderStatus, OrderA
   processing: { preparing: FULFILLMENT, cancelled: ALL },
   preparing: { shipping: FULFILLMENT, cancelled: STAFF },
   shipping: { delivered: FULFILLMENT, returned: STAFF },
-  delivered: { returned: STAFF },
+  // 'system': a return request completed for every item of the order.
+  delivered: { returned: [...STAFF, 'system'] },
   // Money movements belong to the platform: merchants can never mark an order refunded.
   returned: { refunded: REFUND },
   cancelled: { refunded: REFUND },

@@ -39,12 +39,20 @@ export async function runReconciliation(db: Database, payments: PaymentsClient, 
   // 2. Orders ⇄ ledger.
   for (const order of periodOrders) {
     const paid = order.paymentStatus === 'successful' || order.paymentStatus === 'refunded';
-    if (order.paymentMethod === 'online' && paid) {
+    // The part paid with money (the rest was paid with store credit).
+    const moneyPart = order.totalMinor - order.creditAppliedMinor;
+    if (order.paymentMethod === 'online' && paid && moneyPart > 0n) {
       const e = entry(order.id, 'order_paid');
-      if (!e) discrepancies.push({ check: 'order_paid_posted', reference: order.number, expected: Number(order.totalMinor), detail: 'Paid online order without a payment entry' });
-      else if ((e.metadata as { amount: number }).amount !== Number(order.totalMinor)) {
-        discrepancies.push({ check: 'order_paid_amount', reference: order.number, expected: Number(order.totalMinor), actual: (e.metadata as { amount: number }).amount, detail: 'Payment entry amount differs from the order' });
+      if (!e) discrepancies.push({ check: 'order_paid_posted', reference: order.number, expected: Number(moneyPart), detail: 'Paid online order without a payment entry' });
+      else if ((e.metadata as { amount: number }).amount !== Number(moneyPart)) {
+        discrepancies.push({ check: 'order_paid_amount', reference: order.number, expected: Number(moneyPart), actual: (e.metadata as { amount: number }).amount, detail: 'Payment entry amount differs from the order' });
       }
+    }
+    if (order.creditAppliedMinor > 0n && !entry(order.id, 'store_credit_used')) {
+      discrepancies.push({ check: 'store_credit_used_posted', reference: order.number, expected: Number(order.creditAppliedMinor), detail: 'Store credit spent on the order is not in the ledger' });
+    }
+    if (order.status === 'cancelled' && order.creditReturnedMinor < order.creditAppliedMinor) {
+      discrepancies.push({ check: 'cancelled_credit_not_restored', reference: order.number, expected: Number(order.creditAppliedMinor), actual: Number(order.creditReturnedMinor), detail: 'Cancelled order: store credit not given back' });
     }
     if (deliveredIds.has(order.id) && !entry(order.id, 'order_delivered')) {
       discrepancies.push({ check: 'order_delivered_posted', reference: order.number, detail: 'Delivered order without a sale entry' });
@@ -54,8 +62,27 @@ export async function runReconciliation(db: Database, payments: PaymentsClient, 
     if (refunded !== posted) {
       discrepancies.push({ check: 'refunds_posted', reference: order.number, expected: Number(refunded), actual: Number(posted), detail: 'Refunds on the order and in the ledger differ' });
     }
-    if (order.status === 'cancelled' && order.paymentMethod === 'online' && paid && order.refundedMinor < order.totalMinor) {
-      discrepancies.push({ check: 'cancelled_paid_not_refunded', reference: order.number, expected: Number(order.totalMinor), actual: Number(order.refundedMinor), detail: 'Cancelled order was paid and not fully refunded' });
+    if (order.status === 'cancelled' && order.paymentMethod === 'online' && paid && order.refundedMinor < moneyPart) {
+      discrepancies.push({ check: 'cancelled_paid_not_refunded', reference: order.number, expected: Number(moneyPart), actual: Number(order.refundedMinor), detail: 'Cancelled order was paid and not fully refunded' });
+    }
+  }
+
+  // Customers' store credit balances ⇄ the store credit ARUMA owes in the ledger (all time).
+  const balances = await db
+    .select({ currency: s.storeCreditAccounts.currency, total: sql<string>`sum(${s.storeCreditAccounts.balanceMinor})::text` })
+    .from(s.storeCreditAccounts)
+    .groupBy(s.storeCreditAccounts.currency);
+  const owed = await db
+    .select({ currency: s.ledgerAccounts.currency, total: sql<string>`coalesce(sum(${s.journalLines.creditMinor} - ${s.journalLines.debitMinor}), 0)::text` })
+    .from(s.journalLines)
+    .innerJoin(s.ledgerAccounts, eq(s.ledgerAccounts.id, s.journalLines.accountId))
+    .where(eq(s.ledgerAccounts.purpose, 'store_credit'))
+    .groupBy(s.ledgerAccounts.currency);
+  for (const currency of new Set([...balances.map((b) => b.currency), ...owed.map((o) => o.currency)])) {
+    const customers = BigInt(balances.find((b) => b.currency === currency)?.total ?? '0');
+    const ledger = BigInt(owed.find((o) => o.currency === currency)?.total ?? '0');
+    if (customers !== ledger) {
+      discrepancies.push({ check: 'store_credit_balance', reference: currency, expected: Number(ledger), actual: Number(customers), detail: "Customers' store credit differs from the ledger" });
     }
   }
 

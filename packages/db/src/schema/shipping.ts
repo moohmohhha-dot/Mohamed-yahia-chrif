@@ -31,6 +31,7 @@ import { users } from './identity.js';
 import { merchants } from './merchants.js';
 import { orders } from './orders.js';
 import { countries, currencies } from './reference.js';
+import { returnRequests } from './returns.js';
 
 export const geoAreaLevel = pgEnum('geo_area_level', ['region', 'district', 'locality']);
 
@@ -217,6 +218,8 @@ export const shipmentStatus = pgEnum('shipment_status', [
   'returned', // back with the merchant
   'cancelled', // never left
 ]);
+/** outbound: merchant → customer; return: customer → merchant (a return pickup). */
+export const shipmentDirection = pgEnum('shipment_direction', ['outbound', 'return']);
 export const shipmentEventSource = pgEnum('shipment_event_source', ['merchant', 'courier', 'platform', 'system']);
 
 export type ShipmentDestination = {
@@ -238,6 +241,9 @@ export const shipments = pgTable(
     merchantId: uuid('merchant_id')
       .notNull()
       .references(() => merchants.id, { onDelete: 'restrict' }),
+    direction: shipmentDirection('direction').notNull().default('outbound'),
+    /** For a return pickup: the return it brings back. */
+    returnId: uuid('return_id').references((): AnyPgColumn => returnRequests.id, { onDelete: 'restrict' }),
     methodId: uuid('method_id').references(() => shippingMethods.id),
     methodType: shippingMethodType('method_type').notNull(),
     courierCode: varchar('courier_code', { length: 32 }).references(() => couriers.code),
@@ -248,6 +254,8 @@ export const shipments = pgTable(
     labelUrl: text('label_url'),
     status: shipmentStatus('status').notNull().default('pending'),
     destination: jsonb('destination').$type<ShipmentDestination>().notNull(),
+    /** Where the parcel is collected, when it is not the merchant (return pickups: the customer's address). */
+    origin: jsonb('origin').$type<ShipmentDestination>(),
     /** Cash the courier must collect (cash on delivery), 0 otherwise. */
     codAmountMinor: bigint('cod_amount_minor', { mode: 'bigint' }).notNull().default(sql`0`),
     currency: char('currency', { length: 3 })
@@ -258,7 +266,9 @@ export const shipments = pgTable(
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex('shipments_active_order_uq').on(t.orderId).where(sql`${t.status} <> 'cancelled'`),
+    uniqueIndex('shipments_active_order_uq').on(t.orderId).where(sql`${t.status} <> 'cancelled' and ${t.direction} = 'outbound'`),
+    uniqueIndex('shipments_active_return_uq').on(t.returnId).where(sql`${t.status} <> 'cancelled' and ${t.direction} = 'return'`),
+    check('shipments_return_link', sql`(${t.direction} = 'return') = (${t.returnId} is not null)`),
     uniqueIndex('shipments_tracking_uq').on(t.courierCode, t.trackingNumber).where(sql`${t.trackingNumber} is not null`),
     index('shipments_merchant_idx').on(t.merchantId, t.status),
   ],

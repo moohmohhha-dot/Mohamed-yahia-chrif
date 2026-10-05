@@ -4,7 +4,7 @@ import type { Executor, Transaction } from '../../shared/db.js';
 import { AppError, badRequest, forbidden, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
 import { consumeStock, receiveReturn, releaseStock } from '../inventory/index.js';
-import { postOrderDelivered } from '../finance/index.js';
+import { postOrderDelivered, restoreStoreCredit } from '../finance/index.js';
 import { assertCodConfirmed, codAfterTransition } from './cod-hooks.js';
 import { codRecord, describeCod } from '../cod/index.js';
 import type { PaymentsClient } from '../payments/index.js';
@@ -173,15 +173,17 @@ export async function applyTransition(
   // Cash on delivery: delivering means the money was collected, recorded in the Payment Service.
   let payment: Partial<typeof s.orders.$inferInsert> = {};
   if (input.to === 'delivered' && order.paymentMethod === 'cash_on_delivery' && order.paymentStatus !== 'successful') {
+    // The cash collected: the total minus what store credit already paid.
+    const cash = order.totalMinor - order.creditAppliedMinor;
     const intent = await deps.payments.createIntent(`order:${order.id}`, {
       referenceType: 'order',
       referenceId: order.id,
       method: 'cash_on_delivery',
-      amountMinor: Number(order.totalMinor),
+      amountMinor: Number(cash),
       currency: order.currency,
       description: `Order ${order.number}`,
     });
-    await deps.payments.cashCollected(intent.id, Number(order.totalMinor), `${actor.type}:${actor.userId ?? 'system'}`);
+    await deps.payments.cashCollected(intent.id, Number(cash), `${actor.type}:${actor.userId ?? 'system'}`);
     payment = { paymentStatus: 'successful', paymentIntentId: intent.id };
   }
 
@@ -203,6 +205,8 @@ export async function applyTransition(
   });
   // Delivery is when the sale counts: merchant due, ARUMA commission and fee go into the ledger.
   if (input.to === 'delivered') await postOrderDelivered(tx, updated!, now);
+  // Store credit spent on a cancelled order goes back to the customer.
+  if (input.to === 'cancelled') await restoreStoreCredit(tx, updated!, actor.userId);
   // Cash on delivery: collected at delivery, or not collected when cancelled or returned unpaid.
   await codAfterTransition(tx, updated!, input.to, { type: actor.type, userId: actor.userId });
   await audit(tx, actor, {
@@ -252,6 +256,11 @@ export async function getOrder(db: Database, actor: OrderActor, orderId: string)
     ...(actor.type === 'customer' ? {} : { commissionBps }),
     paymentStatus: order.paymentStatus,
     refundedMinor: Number(order.refundedMinor),
+    creditAppliedMinor: Number(order.creditAppliedMinor),
+    creditReturnedMinor: Number(order.creditReturnedMinor),
+    /** Left to pay online or in cash (the rest was paid with store credit). */
+    amountToPayMinor: Number(order.totalMinor - order.creditAppliedMinor),
+    replacementForOrderId: order.replacementForOrderId,
     paymentIntentId: actor.type === 'customer' ? undefined : order.paymentIntentId,
     merchant: merchant!,
     shippingAddress: order.shippingAddress,

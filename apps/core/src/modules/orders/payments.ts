@@ -33,7 +33,9 @@ export async function startCheckoutPayment(
 ): Promise<PaymentIntent> {
   const orders = await checkoutOrders(db, checkoutId);
   if (orders.length === 0 || orders.some((o) => o.paymentMethod !== 'online')) throw notFound('Online checkout');
-  const total = orders.reduce((sum, o) => sum + o.totalMinor, 0n);
+  // Store credit already paid part of the orders: only the rest is paid online.
+  const total = orders.reduce((sum, o) => sum + o.totalMinor - o.creditAppliedMinor, 0n);
+  if (total <= 0n) throw new AppError(409, 'NOTHING_TO_PAY', 'These orders are fully paid with store credit');
   const intent = await payments.createIntent(`checkout:${checkoutId}`, {
     referenceType: 'checkout',
     referenceId: checkoutId,
@@ -123,7 +125,8 @@ async function applyRefund(db: Database, deps: OrderDeps, orderId: string, refun
     const refundedMinor = current!.refundedMinor + BigInt(refund.amountMinor);
     const [updated] = await tx
       .update(s.orders)
-      .set({ refundedMinor, ...(refundedMinor === current!.totalMinor ? { paymentStatus: 'refunded' as const } : {}) })
+      // The money paid is fully refunded (store credit spent on the order is given back separately).
+      .set({ refundedMinor, ...(refundedMinor === current!.totalMinor - current!.creditAppliedMinor ? { paymentStatus: 'refunded' as const } : {}) })
       .where(eq(s.orders.id, orderId))
       .returning();
     await postOrderRefund(tx, current!, { id: refund.id, amountMinor: BigInt(refund.amountMinor), reason: refund.reason });
@@ -137,16 +140,20 @@ async function applyRefund(db: Database, deps: OrderDeps, orderId: string, refun
       type: 'orders.order.refunded',
       aggregateType: 'order',
       aggregateId: orderId,
-      payload: { amountMinor: refund.amountMinor, refundedMinor: Number(refundedMinor), full: refundedMinor === current!.totalMinor },
+      payload: { amountMinor: refund.amountMinor, refundedMinor: Number(refundedMinor), full: fullyReturned(updated!) },
     });
     return updated!;
   });
-  if (order && order.refundedMinor === order.totalMinor && (order.status === 'cancelled' || order.status === 'returned')) {
-    await transitionOrder(db, deps, { ...actor, type: actor.userId ? 'platform' : 'system' }, orderId, {
-      to: 'refunded',
-      reason: refund.reason ?? 'Refunded',
-      viaRefund: true,
-    });
+  if (order) await markRefundedIfDone(db, deps, actor, order, refund.reason ?? 'Refunded');
+}
+
+/** Everything the customer paid (money and store credit) has been given back. */
+export const fullyReturned = (o: Order) => o.refundedMinor + o.creditReturnedMinor === o.totalMinor;
+
+/** A cancelled or returned order whose whole value went back to the customer becomes "refunded". */
+export async function markRefundedIfDone(db: Database, deps: OrderDeps, actor: Actor, order: Order, reason: string) {
+  if (fullyReturned(order) && (order.status === 'cancelled' || order.status === 'returned')) {
+    await transitionOrder(db, deps, { ...actor, type: actor.userId ? 'platform' : 'system' }, order.id, { to: 'refunded', reason, viaRefund: true });
   }
 }
 
@@ -221,28 +228,32 @@ export async function handlePaymentEvent(db: Database, deps: OrderDeps, event: P
 export async function refundOrder(
   db: Database,
   deps: OrderDeps,
-  admin: Actor & { userId: string },
+  admin: Actor,
   orderId: string,
   idempotencyKey: string,
   input: { amountMinor: number; reason: string; externalReference?: string },
-) {
+): Promise<{ refundId: string }> {
   const [order] = await db.select().from(s.orders).where(eq(s.orders.id, orderId));
   if (!order) throw notFound('Order');
   if (order.paymentStatus !== 'successful' || !order.paymentIntentId) {
     throw new AppError(409, 'NOTHING_TO_REFUND', 'No payment has been received for this order');
   }
-  const refundable = order.totalMinor - order.refundedMinor;
+  // Money can be refunded up to what was paid in money and not yet given back (credit goes back as credit).
+  const moneyLeft = order.totalMinor - order.creditAppliedMinor - order.refundedMinor;
+  const valueLeft = order.totalMinor - order.refundedMinor - order.creditReturnedMinor;
+  const refundable = moneyLeft < valueLeft ? moneyLeft : valueLeft;
   if (BigInt(input.amountMinor) > refundable) {
     throw new AppError(409, 'REFUND_EXCEEDS_ORDER', `At most ${refundable} can be refunded for this order`, { refundableMinor: Number(refundable) });
   }
   const { refundId } = await deps.payments.refund(order.paymentIntentId, `order-refund:${orderId}:${idempotencyKey}`, {
     amountMinor: input.amountMinor,
     reason: input.reason,
-    requestedBy: `admin:${admin.userId}`,
+    requestedBy: admin.userId ? `user:${admin.userId}` : 'system',
     externalReference: input.externalReference,
     scope: orderId,
   });
   await applyRefund(db, deps, orderId, { id: refundId, amountMinor: input.amountMinor, reason: input.reason }, admin);
+  return { refundId };
 }
 
 /** Cancels online checkouts left unpaid for too long, releasing their stock. Run periodically. */

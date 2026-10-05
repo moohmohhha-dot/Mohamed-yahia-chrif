@@ -13,7 +13,10 @@ export type Shipment = typeof s.shipments.$inferSelect;
 export type ShipmentSource = (typeof s.shipmentEventSource.enumValues)[number];
 
 export async function activeShipment(db: Executor, orderId: string, lock = false): Promise<Shipment | null> {
-  const query = db.select().from(s.shipments).where(and(eq(s.shipments.orderId, orderId), ne(s.shipments.status, 'cancelled')));
+  const query = db
+    .select()
+    .from(s.shipments)
+    .where(and(eq(s.shipments.orderId, orderId), eq(s.shipments.direction, 'outbound'), ne(s.shipments.status, 'cancelled')));
   const [shipment] = lock ? await query.for('update') : await query;
   return shipment ?? null;
 }
@@ -68,7 +71,7 @@ export async function openShipment(
       externalId: input.externalId ?? null,
       labelUrl: input.labelUrl ?? null,
       destination: destinationOf(order),
-      codAmountMinor: order.paymentMethod === 'cash_on_delivery' ? order.totalMinor - order.refundedMinor : 0n,
+      codAmountMinor: order.paymentMethod === 'cash_on_delivery' && order.paymentStatus !== 'successful' ? order.totalMinor - order.refundedMinor - order.creditAppliedMinor : 0n,
       currency: order.currency,
       createdBy: input.actorUserId,
     })
@@ -182,8 +185,16 @@ export async function describeShipment(db: Executor, shipment: Shipment, view: '
 
 /** The order's current parcel (or the last cancelled one), described. */
 export async function shipmentOfOrder(db: Executor, orderId: string, view: 'customer' | 'merchant' | 'platform') {
-  const shipment = (await activeShipment(db, orderId)) ??
-    (await db.select().from(s.shipments).where(eq(s.shipments.orderId, orderId)).orderBy(desc(s.shipments.createdAt)).limit(1))[0];
+  const shipment =
+    (await activeShipment(db, orderId)) ??
+    (
+      await db
+        .select()
+        .from(s.shipments)
+        .where(and(eq(s.shipments.orderId, orderId), eq(s.shipments.direction, 'outbound')))
+        .orderBy(desc(s.shipments.createdAt))
+        .limit(1)
+    )[0];
   return shipment ? describeShipment(db, shipment, view) : null;
 }
 
@@ -193,4 +204,56 @@ export async function findShipmentByTracking(db: Executor, courierCode: string, 
     .from(s.shipments)
     .where(and(eq(s.shipments.courierCode, courierCode), eq(s.shipments.trackingNumber, trackingNumber)));
   return shipment ?? null;
+}
+
+// --- Return pickups (customer → merchant) ---------------------------------------------------------------
+
+export async function activeReturnShipment(db: Executor, returnId: string, lock = false): Promise<Shipment | null> {
+  const query = db
+    .select()
+    .from(s.shipments)
+    .where(and(eq(s.shipments.returnId, returnId), eq(s.shipments.direction, 'return'), ne(s.shipments.status, 'cancelled')));
+  const [shipment] = lock ? await query.for('update') : await query;
+  return shipment ?? null;
+}
+
+/** A pickup of returned items at the customer's address, back to the merchant. */
+export async function openReturnShipment(
+  tx: Executor,
+  input: {
+    order: Order;
+    returnId: string;
+    courierCode: string | null;
+    trackingNumber?: string | null;
+    origin: ShipmentDestination;
+    destination: ShipmentDestination;
+    source: ShipmentSource;
+    actorUserId: string | null;
+  },
+): Promise<Shipment> {
+  if (await activeReturnShipment(tx, input.returnId)) throw new AppError(409, 'SHIPMENT_EXISTS', 'This return already has a pickup');
+  if (input.courierCode) {
+    const [courier] = await tx.select().from(s.couriers).where(and(eq(s.couriers.code, input.courierCode), eq(s.couriers.active, true)));
+    if (!courier) throw badRequest('UNKNOWN_COURIER', 'This courier is not available');
+  }
+  await assertTrackingFree(tx, input.courierCode, input.trackingNumber?.trim());
+  const [shipment] = await tx
+    .insert(s.shipments)
+    .values({
+      orderId: input.order.id,
+      merchantId: input.order.merchantId,
+      direction: 'return',
+      returnId: input.returnId,
+      methodType: input.courierCode ? 'courier' : 'merchant_delivery',
+      courierCode: input.courierCode,
+      trackingNumber: input.trackingNumber?.trim() || null,
+      origin: input.origin,
+      destination: input.destination,
+      codAmountMinor: 0n,
+      currency: input.order.currency,
+      createdBy: input.actorUserId,
+    })
+    .returning();
+  await tx.insert(s.shipmentEvents).values({ shipmentId: shipment!.id, status: 'pending', source: input.source, actorUserId: input.actorUserId, description: 'Return pickup created' });
+  return shipment!;
 }

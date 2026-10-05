@@ -4,6 +4,7 @@ import { buildApp } from './app.js';
 import { expireUnpaidCheckouts } from './modules/orders/payments.js';
 import { releaseExpiredReservations } from './modules/inventory/index.js';
 import { releaseMaturedBalances } from './modules/finance/index.js';
+import { escalateOverdueReturns } from './modules/returns/index.js';
 import { loadConfig } from './config.js';
 import { createHttpPaymentsClient } from './modules/payments/index.js';
 import { createLocalStorage, createLogMessageSender, createSecretBox } from './modules/platform/index.js';
@@ -32,12 +33,13 @@ const app = buildApp(db, services, {
 });
 
 // Background jobs: unpaid online checkouts expire after an hour; expired stock holds are released;
-// merchant balances leave the hold period.
+// merchant balances leave the hold period; return requests left unanswered go to ARUMA.
 const jobs = setInterval(() => {
   expireUnpaidCheckouts(db, { payments: services.payments }, 60).catch((e) => app.log.error(e, 'checkout expiry failed'));
   releaseExpiredReservations(db).catch((e) => app.log.error(e, 'reservation expiry failed'));
   // Merchant money becomes available when the hold period (returns window) ends.
   releaseMaturedBalances(db).catch((e) => app.log.error(e, 'balance release failed'));
+  escalateOverdueReturns(db).catch((e) => app.log.error(e, 'return escalation failed'));
 }, 5 * 60_000);
 
 const shutdown = async () => {

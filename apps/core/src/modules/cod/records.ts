@@ -49,7 +49,7 @@ export async function openCodRecord(db: Executor, order: Order, input: { require
       merchantId: order.merchantId,
       customerUserId: order.customerUserId,
       phone: order.shippingAddress.phone,
-      amountDueMinor: order.totalMinor - order.refundedMinor,
+      amountDueMinor: order.totalMinor - order.refundedMinor - order.creditAppliedMinor,
       currency: order.currency,
       confirmationStatus: input.requireConfirmation ? 'pending' : 'not_required',
       // Only the snapshot (level, score, reasons), not the history behind it.

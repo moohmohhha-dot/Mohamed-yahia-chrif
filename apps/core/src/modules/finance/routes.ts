@@ -5,6 +5,7 @@ import { authOf, requireAuth, requireRole } from '../identity/index.js';
 import { requireMembership } from '../merchants/index.js';
 import { releaseMaturedBalances } from './posting.js';
 import { runReconciliation } from './reconciliation.js';
+import { storeCreditStatement } from './store-credit.js';
 import { addCommissionRule, addSetting, listRules } from './rules.js';
 import {
   createSettlement,
@@ -32,6 +33,11 @@ export async function financeRoutes(app: FastifyInstance) {
     await requireMembership(app.db, merchantId, authOf(req).userId, ['owner', 'manager']);
     return merchantId;
   };
+
+  // --- Customer -----------------------------------------------------------------------------------------
+
+  /** The customer's store credit: balance per currency and movements. */
+  app.get('/v1/me/store-credit', member, async (req) => ({ data: await storeCreditStatement(app.db, authOf(req).userId) }));
 
   // --- Merchant (read-only) ------------------------------------------------------------------------
   app.get('/v1/merchants/:merchantId/finance/balance', member, async (req) => ({ data: await merchantBalances(app.db, await asMember(req)) }));
@@ -106,6 +112,11 @@ export async function financeRoutes(app: FastifyInstance) {
       })
       .parse(req.body);
     return reply.status(201).send({ data: await recordProviderSettlement(app.db, actor(req), body) });
+  });
+
+  app.get('/v1/admin/finance/store-credit/:userId', admin, async (req) => {
+    const { userId } = z.object({ userId: z.uuid() }).parse(req.params);
+    return { data: await storeCreditStatement(app.db, userId) };
   });
 
   app.get('/v1/admin/finance/trial-balance', admin, async () => ({ data: await trialBalance(app.db) }));

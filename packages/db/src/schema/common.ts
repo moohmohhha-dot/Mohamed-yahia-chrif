@@ -11,3 +11,6 @@ export const timestamps = {
 };
 
 export const recordStatus = pgEnum('record_status', ['draft', 'active', 'archived']);
+
+/** Who acted on an order (also used by COD and returns histories). */
+export const orderActorType = pgEnum('order_actor_type', ['customer', 'merchant', 'platform', 'system']);

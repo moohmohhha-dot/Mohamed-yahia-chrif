@@ -26,6 +26,7 @@ export const accountPurpose = pgEnum('ledger_account_purpose', [
   'commission_revenue', // revenue: ARUMA's commission
   'fee_revenue', // revenue: fees charged to merchants
   'provider_fees_expense', // expense: fees charged by payment providers
+  'store_credit', // liability: store credit ARUMA owes customers (detail per customer in store_credit_transactions)
   // Merchant (one set per merchant and currency)
   'merchant_pending', // liability: earned, still in the hold period (returns window)
   'merchant_available', // liability: can be settled
@@ -61,6 +62,9 @@ export const entryKind = pgEnum('ledger_entry_kind', [
   'payout_failed', // transfer returned: money back to the merchant's available balance
   'provider_settlement', // the provider paid ARUMA (minus its fees)
   'adjustment', // manual correction by finance, always with a reason
+  'store_credit_issued', // value returned to a customer as store credit (a return resolved with credit)
+  'store_credit_used', // store credit spent on an order
+  'store_credit_restored', // credit spent on an order given back (order cancelled before delivery)
 ]);
 
 /** A journal entry. (kind, source) is unique, so posting the same business event twice is impossible. */
@@ -231,3 +235,53 @@ export const reconciliationRuns = pgTable('reconciliation_runs', {
   createdBy: uuid('created_by').references(() => users.id, { onDelete: 'restrict' }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+/** One balance per customer and currency; changes only through store_credit_transactions (row locked while spending). */
+export const storeCreditAccounts = pgTable(
+  'store_credit_accounts',
+  {
+    customerUserId: uuid('customer_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    currency: char('currency', { length: 3 })
+      .notNull()
+      .references(() => currencies.code),
+    balanceMinor: bigint('balance_minor', { mode: 'bigint' }).notNull().default(sql`0`),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex('store_credit_accounts_pk').on(t.customerUserId, t.currency),
+    check('store_credit_balance_positive', sql`${t.balanceMinor} >= 0`),
+  ],
+);
+
+export const storeCreditKind = pgEnum('store_credit_kind', ['issued', 'used', 'restored', 'adjustment']);
+
+/** Every change of a customer's store credit. Append-only; the balance is the running total. */
+export const storeCreditTransactions = pgTable(
+  'store_credit_transactions',
+  {
+    id: id(),
+    customerUserId: uuid('customer_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'restrict' }),
+    currency: char('currency', { length: 3 })
+      .notNull()
+      .references(() => currencies.code),
+    kind: storeCreditKind('kind').notNull(),
+    /** Positive: credit added; negative: credit spent. */
+    amountMinor: bigint('amount_minor', { mode: 'bigint' }).notNull(),
+    balanceAfterMinor: bigint('balance_after_minor', { mode: 'bigint' }).notNull(),
+    orderId: uuid('order_id').references(() => orders.id, { onDelete: 'restrict' }),
+    /** Source record, e.g. the return that issued the credit. */
+    sourceType: varchar('source_type', { length: 32 }),
+    sourceId: uuid('source_id'),
+    note: text('note'),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'restrict' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().default(sql`clock_timestamp()`),
+  },
+  (t) => [
+    index('store_credit_transactions_customer_idx').on(t.customerUserId, t.createdAt),
+    check('store_credit_transactions_nonzero', sql`${t.amountMinor} <> 0 and ${t.balanceAfterMinor} >= 0`),
+  ],
+);
