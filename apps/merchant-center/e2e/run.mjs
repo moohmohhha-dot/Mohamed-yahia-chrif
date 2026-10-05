@@ -156,7 +156,7 @@ try {
   await page.getByRole('heading', { name: 'لوحة القيادة' }).waitFor();
   await page.getByText('لا يمكنك البيع قبل توثيق حسابك').waitFor();
   check(true, 'new merchant cannot sell yet');
-  check((await page.locator('.nav-link').count()) === 22, 'all 22 Merchant Center sections are in the menu (20 + Shipping + Cash on delivery)');
+  check((await page.locator('.nav-link').count()) === 23, 'all 23 Merchant Center sections are in the menu (20 + Returns + Shipping + Cash on delivery)');
   await page.screenshot({ path: join(shots, '1-dashboard-ar.png'), fullPage: true });
 
   await page.locator('.nav-link', { hasText: 'المبيعات' }).click();
@@ -415,16 +415,44 @@ try {
   await page.locator('.nav-link', { hasText: 'Orders' }).click();
   await page.getByRole('button', { name: number }).click();
   await page.getByRole('heading', { name: number }).waitFor();
-  await page.getByRole('button', { name: 'Record a return' }).click();
-  await page.getByLabel('Reason (required)').fill('Refusé à la livraison');
-  await page.getByRole('button', { name: 'Confirm · Record a return' }).click();
+  console.log('Returns (English)');
+  // The customer asks to return both bottles (API: the storefront is not built yet), with a photo.
+  const asShopper = { authorization: `Bearer ${shopper.token}` };
+  const requested = await fetch(`${API}/v1/me/orders/${placed.data.orders[0].id}/returns`, {
+    method: 'POST',
+    headers: { ...asShopper, 'content-type': 'application/json' },
+    body: JSON.stringify({ lines: [{ orderLineId: placed.data.orders[0].lines[0].id, quantity: 2 }], reason: 'damaged', description: 'Les deux flacons sont arrivés fissurés.', resolution: 'refund' }),
+  }).then((r) => r.json());
+  const photo = new FormData();
+  photo.append('file', new Blob([Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), randomBytes(64)])], { type: 'image/png' }), 'photo.png');
+  await fetch(`${API}/v1/me/returns/${requested.data.id}/evidence`, { method: 'POST', headers: asShopper, body: photo });
+  const submitted = await fetch(`${API}/v1/me/returns/${requested.data.id}/submit`, { method: 'POST', headers: asShopper }).then((r) => r.json());
+  check(submitted.data.status === 'requested', 'customer return request sent with a photo');
+  const returnNumber = submitted.data.number;
+
+  await page.locator('.nav-link', { hasText: 'Returns' }).click();
+  await page.getByRole('button', { name: returnNumber }).click();
+  await page.getByTestId('return-description').getByText('Les deux flacons sont arrivés fissurés.').waitFor();
+  check((await page.getByRole('button', { name: /^Customer · 1$/ }).count()) === 1, "the customer's photo is attached");
+  await page.getByRole('combobox', { name: /^How the item comes back/ }).selectOption('drop_off');
+  await page.getByRole('button', { name: 'Accept the return' }).click();
+  await page.getByRole('button', { name: 'I received the item' }).click();
+  await page.getByRole('checkbox', { name: /Back on sale/ }).uncheck();
+  await page.getByRole('button', { name: 'Save the inspection' }).click();
+  await page.getByText('ARUMA sends the refund').waitFor();
+  check(true, 'merchant accepted, received and inspected the return; ARUMA sends the 14 900 DZD refund');
+  await page.screenshot({ path: join(shots, '7-return-en.png'), fullPage: true });
+
+  await page.locator('.nav-link', { hasText: 'Orders' }).click();
+  await page.getByRole('button', { name: number }).click();
+  await page.getByRole('heading', { name: number }).waitFor();
   await page.getByTestId('order-history').locator('tbody tr').nth(5).waitFor();
   const rows = await page.getByTestId('order-history').locator('tbody tr').count();
   check(rows === 6, 'order moved new → processing → preparing → shipping → delivered → returned, all recorded');
   check((await page.getByTestId('shipment-history').locator('tbody tr').count()) === 7, 'tracking history: prepared, in transit, out, failed, out again, delivered, back');
   check((await page.getByRole('button', { name: 'Refund' }).count()) === 0, 'merchant has no refund button');
-  await page.getByText('Refusé à la livraison').first().waitFor();
-  check(true, 'history shows the reason');
+  await page.getByTestId('order-history').getByText(`Return ${returnNumber}`).waitFor();
+  check(true, 'history shows the return that closed the order');
   await page.screenshot({ path: join(shots, '5-order-en.png'), fullPage: true });
 
   await page.getByLabel('Language').first().selectOption('ar');

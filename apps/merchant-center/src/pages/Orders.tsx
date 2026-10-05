@@ -48,6 +48,9 @@ type OrderDetail = OrderSummary & {
   shippingMinor: number;
   commissionBps: number;
   refundedMinor: number;
+  creditAppliedMinor: number;
+  creditReturnedMinor: number;
+  replacementForOrderId: string | null;
   customerNote: string | null;
   shippingAddress: {
     fullName: string;
@@ -174,6 +177,7 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
       {o.paymentMethod === 'online' && o.paymentStatus !== 'successful' && o.status === 'new' && (
         <div className="alert alert-warn">{t('orders.awaitingPayment')}</div>
       )}
+      {o.replacementForOrderId && <div className="alert alert-warn">{t('orders.isReplacement')}</div>}
       {o.cod?.confirmationStatus === 'pending' && o.status === 'new' && <div className="alert alert-warn">{t('cod.confirmFirst')}</div>}
       <Actions order={o} url={url} onDone={() => void order.reload()} />
       {o.cod && <CodPanel cod={o.cod} orderUrl={url} orderStatus={o.status} shipmentStatus={o.shipment && o.shipment.status !== 'cancelled' ? o.shipment.status : null} onDone={() => void order.reload()} />}
@@ -228,6 +232,18 @@ function OrderDetailView({ orderId, onBack }: { orderId: string; onBack: () => v
                   <strong>{fmt(o.totalMinor)}</strong>
                 </td>
               </tr>
+              {o.creditAppliedMinor > 0 && (
+                <tr>
+                  <td>{t('orders.paidWithCredit')}</td>
+                  <td className="num">−{fmt(o.creditAppliedMinor)}</td>
+                </tr>
+              )}
+              {o.creditReturnedMinor > 0 && (
+                <tr>
+                  <td>{t('orders.creditReturned')}</td>
+                  <td className="num">{fmt(o.creditReturnedMinor)}</td>
+                </tr>
+              )}
               {o.refundedMinor > 0 && (
                 <tr>
                   <td>{t('orders.refunded')}</td>
