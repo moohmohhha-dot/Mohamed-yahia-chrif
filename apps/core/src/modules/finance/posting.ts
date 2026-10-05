@@ -199,3 +199,21 @@ export async function releaseMaturedBalances(db: Database, now = new Date()) {
   }
   return released;
 }
+
+/**
+ * ARUMA compensates a merchant after a dispute decided in its favour (e.g. a commission charged by
+ * mistake): an expense for ARUMA, added to the merchant's available balance. Once per dispute.
+ */
+export async function postMerchantCompensation(db: Executor, input: { merchantId: string; currency: string; amountMinor: bigint; disputeId: string; reason: string; createdBy: string | null }) {
+  return postEntry(db, {
+    kind: 'adjustment',
+    sourceType: 'dispute',
+    sourceId: input.disputeId,
+    currency: input.currency,
+    merchantId: input.merchantId,
+    description: input.reason,
+    metadata: { amount: Number(input.amountMinor), dispute: input.disputeId },
+    createdBy: input.createdBy,
+    lines: move(input.amountMinor, { purpose: 'compensation_expense' }, { purpose: 'merchant_available', merchantId: input.merchantId }),
+  });
+}

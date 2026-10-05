@@ -53,6 +53,7 @@
 | `commission_revenue` | عمولة ARUMA |
 | `fee_revenue` | رسوم ARUMA على الطلب |
 | `provider_fees_expense` | رسوم مزوّد الدفع (مصروف على ARUMA) |
+| `compensation_expense` | تعويضات تدفعها ARUMA للتجار بقرار نزاع ([DISPUTES.md](DISPUTES.md)) |
 
 ## العمولة: قابلة للتغيير وليست مكتوبة في الكود
 

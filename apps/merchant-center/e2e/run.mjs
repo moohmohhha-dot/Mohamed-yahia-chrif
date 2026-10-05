@@ -156,7 +156,7 @@ try {
   await page.getByRole('heading', { name: 'لوحة القيادة' }).waitFor();
   await page.getByText('لا يمكنك البيع قبل توثيق حسابك').waitFor();
   check(true, 'new merchant cannot sell yet');
-  check((await page.locator('.nav-link').count()) === 23, 'all 23 Merchant Center sections are in the menu (20 + Returns + Shipping + Cash on delivery)');
+  check((await page.locator('.nav-link').count()) === 24, 'all 24 Merchant Center sections are in the menu (20 + Returns + Shipping + Cash on delivery + Disputes)');
   await page.screenshot({ path: join(shots, '1-dashboard-ar.png'), fullPage: true });
 
   await page.locator('.nav-link', { hasText: 'المبيعات' }).click();
@@ -481,6 +481,48 @@ try {
   const shown = await fetch(`${API}/v1/products/${productReview.data.productId}/reviews`).then((r) => r.json());
   check(shown.data.reviews[0].merchantReply?.text === 'Merci beaucoup, au plaisir de vous servir à nouveau !', 'public reply shown under the review (contact details refused)');
   await page.screenshot({ path: join(shots, '8-reviews-en.png'), fullPage: true });
+
+  console.log('Disputes (English)');
+  // The customer opens a dispute about the order (API: the storefront is not built yet).
+  const opened = await fetch(`${API}/v1/me/disputes`, {
+    method: 'POST',
+    headers: { ...asShopper, 'content-type': 'application/json' },
+    body: JSON.stringify({ orderId: placed.data.orders[0].id, category: 'not_as_described', subject: 'Parfum différent', description: `Le parfum reçu ne sent pas comme décrit (commande ${number}).` }),
+  }).then((r) => r.json());
+  check(opened.data?.status === 'open', 'customer opened a dispute about the order');
+  await page.locator('.nav-link', { hasText: 'Disputes' }).click();
+  await page.getByRole('button', { name: opened.data.number }).click();
+  await page.getByText('Opened against you').waitFor();
+  await page.getByLabel('Your message').fill('Le parfum est bien celui de la fiche, lot vérifié avant envoi.');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await page.getByTestId('dispute-thread').getByText('lot vérifié avant envoi').waitFor();
+  await page.getByLabel('Add a file').setInputFiles({ name: 'facture.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 facture') });
+  await page.getByRole('button', { name: /Evidence · Merchant · 1/ }).waitFor();
+  check(true, 'merchant answered in the thread and attached a file');
+  // ARUMA decides (API: the ARUMA back office comes later), partly for each side.
+  const decided = await call('POST', `/v1/admin/disputes/${opened.data.id}/decision`, admin.token, { outcome: 'partial', remedy: 'none', text: 'Odeur légèrement différente selon le lot ; aucun remboursement dû.' });
+  check(decided.status === 'decided', 'ARUMA decided');
+  await page.reload();
+  await page.getByTestId('dispute-decision').getByText('Partly in favour of each').waitFor();
+  await page.getByRole('button', { name: 'Appeal' }).first().click();
+  await page.getByLabel('Reason').fill('Le lot est identique à celui de la fiche produit, certificat joint.');
+  await page.getByRole('button', { name: 'Send' }).first().click();
+  await page.getByText('Another ARUMA administrator is reviewing the appeal.').waitFor();
+  check(true, 'merchant appealed from the UI');
+  const sameAdmin = await call('POST', `/v1/admin/disputes/${opened.data.id}/appeal-decision`, admin.token, { result: 'upheld', text: 'Décision confirmée après examen du dossier.' }).catch((e) => e.message);
+  const admin2Email = `admin2-${run}@example.com`;
+  const admin2 = await call('POST', '/v1/auth/register', null, { email: admin2Email, password: 'a strong password', displayName: 'Admin 2' });
+  const db2 = new pg.Client({ connectionString: DATABASE_URL });
+  await db2.connect();
+  await db2.query(`update users set role = 'admin' where email = $1`, [admin2Email]);
+  await db2.end();
+  const upheld = await call('POST', `/v1/admin/disputes/${opened.data.id}/appeal-decision`, admin2.token, { result: 'upheld', text: 'Décision confirmée après nouvel examen du dossier.' });
+  check(String(sameAdmin).includes('403') && upheld.status === 'resolved', 'the appeal is decided by another administrator, never the first one');
+  await page.reload();
+  await page.getByText('Decision upheld').waitFor();
+  await page.getByTestId('dispute-history').getByText('Appeal decided').waitFor();
+  check((await page.getByLabel('Your message').count()) === 0, 'resolved: final, with its full history; no more messages');
+  await page.screenshot({ path: join(shots, '9-dispute-en.png'), fullPage: true });
 
 
   await page.getByLabel('Language').first().selectOption('ar');

@@ -7,6 +7,7 @@ import { MerchantCtx, type MerchantRole } from '../merchant-context';
 import { CodPage } from '../pages/Cod';
 import { ComingSoon } from '../pages/ComingSoon';
 import { DashboardPage } from '../pages/Dashboard';
+import { DisputesPage } from '../pages/Disputes';
 import { BalancePage, SettlementsPage } from '../pages/Finance';
 import { InventoryPage } from '../pages/Inventory';
 import { OffersPage } from '../pages/Offers';
@@ -31,6 +32,7 @@ const PAGES: Partial<Record<SectionId, ComponentType>> = {
   orders: OrdersPage,
   returns: ReturnsPage,
   reviews: ReviewsPage,
+  disputes: DisputesPage,
   shipping: ShippingPage,
   cod: CodPage,
   inventory: InventoryPage,

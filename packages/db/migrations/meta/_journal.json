@@ -176,6 +176,34 @@
       "when": 1791238108406,
       "tag": "0024_reviews_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791239240850,
+      "tag": "0025_disputes",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1791239242465,
+      "tag": "0026_disputes_guards",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1791239258543,
+      "tag": "0027_compensation_account",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1791239481632,
+      "tag": "0028_dispute_appeal_outcome",
+      "breakpoints": true
     }
   ]
 }

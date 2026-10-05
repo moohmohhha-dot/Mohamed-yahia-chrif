@@ -27,6 +27,7 @@ export const accountPurpose = pgEnum('ledger_account_purpose', [
   'fee_revenue', // revenue: fees charged to merchants
   'provider_fees_expense', // expense: fees charged by payment providers
   'store_credit', // liability: store credit ARUMA owes customers (detail per customer in store_credit_transactions)
+  'compensation_expense', // expense: what ARUMA pays merchants after a dispute decided in their favour
   // Merchant (one set per merchant and currency)
   'merchant_pending', // liability: earned, still in the hold period (returns window)
   'merchant_available', // liability: can be settled

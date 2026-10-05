@@ -18,6 +18,7 @@ const TYPE_OF: Record<Purpose, (typeof s.accountType.enumValues)[number]> = {
   fee_revenue: 'revenue',
   provider_fees_expense: 'expense',
   store_credit: 'liability',
+  compensation_expense: 'expense',
   merchant_pending: 'liability',
   merchant_available: 'liability',
   merchant_settled: 'liability',

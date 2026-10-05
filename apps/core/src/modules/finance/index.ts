@@ -4,6 +4,6 @@
  * Ledger balances are records, not money: real transfers happen at the provider or the bank.
  */
 export { financeRoutes } from './routes.js';
-export { postOrderDelivered, postOrderPaid, postOrderRefund, releaseMaturedBalances } from './posting.js';
+export { postMerchantCompensation, postOrderDelivered, postOrderPaid, postOrderRefund, releaseMaturedBalances } from './posting.js';
 export { getSetting, resolveCommissionBps } from './rules.js';
 export { issueStoreCredit, restoreStoreCredit, spendStoreCredit, storeCreditBalance, storeCreditStatement } from './store-credit.js';

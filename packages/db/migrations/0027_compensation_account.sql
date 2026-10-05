@@ -1,0 +1,1 @@
+ALTER TYPE "public"."ledger_account_purpose" ADD VALUE 'compensation_expense' BEFORE 'merchant_pending';
