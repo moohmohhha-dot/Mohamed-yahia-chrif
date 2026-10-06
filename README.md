@@ -16,6 +16,7 @@
 - المرتجعات ورصيد المتجر: [docs/RETURNS.md](docs/RETURNS.md)
 - التقييمات والحماية من المزيف: [docs/REVIEWS.md](docs/REVIEWS.md)
 - مركز النزاعات: [docs/DISPUTES.md](docs/DISPUTES.md)
+- لوحة إدارة ARUMA (الأدوار والصلاحيات): [docs/ADMIN.md](docs/ADMIN.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 
 ## التشغيل محليًا (للمطوّرين)

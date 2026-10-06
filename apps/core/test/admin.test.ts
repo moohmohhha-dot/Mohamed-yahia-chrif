@@ -18,6 +18,8 @@ let merchantId: string;
 let productId: string;
 let productSlug: string;
 const flagKey = `test.admin_${randomUUID().slice(0, 8)}`;
+/** A store of this test file only, so its products never show in other test files' MB Parfum listings. */
+const storeSlug = `admin-test-${randomUUID().slice(0, 8)}`;
 
 const ok = async (res: Awaited<ReturnType<typeof call>>, status = 200) => {
   expect(res.statusCode, res.body).toBe(status);
@@ -48,11 +50,15 @@ beforeAll(async () => {
     })
   ).json().data.id;
   await verifyMerchantViaApi(app, owner, superAdmin, merchantId);
-  await ok(await call('PUT', `/v1/admin/stores/mb-parfum/merchants/${merchantId}`, superAdmin.token, { commissionBps: null }));
+  const [store] = await db.insert(s.stores).values({ slug: storeSlug, name: 'Admin test store', vertical: 'perfume', status: 'active', defaultLocale: 'ar', defaultCurrency: 'DZD' }).returning();
+  await db.insert(s.storeLocales).values(['ar', 'fr'].map((locale) => ({ storeId: store!.id, locale })));
+  await db.insert(s.storeCurrencies).values({ storeId: store!.id, currency: 'DZD' });
+  await db.insert(s.storeCountries).values({ storeId: store!.id, country: 'DZ' });
+  await ok(await call('PUT', `/v1/admin/stores/${storeSlug}/merchants/${merchantId}`, superAdmin.token, { commissionBps: null }));
   productSlug = uniqueSlug('adm');
   productId = (
     await call('POST', `/v1/merchants/${merchantId}/products`, owner.token, {
-      storeSlug: 'mb-parfum',
+      storeSlug,
       slug: productSlug,
       translations: [{ locale: 'ar', name: 'ورد' }, { locale: 'fr', name: 'Rose de Taïf' }],
       variants: [{ sku: `${productSlug}-50`, options: { sizeMl: 50 } }],
@@ -64,6 +70,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await db.delete(s.featureFlags).where(eq(s.featureFlags.key, flagKey));
+  await db.update(s.products).set({ status: 'archived' }).where(eq(s.products.id, productId));
   await db.update(s.storeMerchants).set({ status: 'archived' }).where(eq(s.storeMerchants.merchantId, merchantId));
   await app.close();
   await pool.end();
@@ -192,7 +199,7 @@ describe('users', () => {
 
 describe('catalog moderation', () => {
   it('a content admin takes a product off sale; the merchant sees why and cannot republish it; unblocking restores it', async () => {
-    const shown = () => app.inject({ method: 'GET', url: `/v1/stores/mb-parfum/products/${productSlug}` });
+    const shown = () => app.inject({ method: 'GET', url: `/v1/stores/${storeSlug}/products/${productSlug}` });
     expect((await shown()).statusCode).toBe(200);
     const list = await ok(await call('GET', `/v1/admin/products?q=${encodeURIComponent('Rose de Taïf')}`, as.content_admin!.token));
     expect(list[0]).toMatchObject({ id: productId, status: 'active', merchantName: 'Admin Test Shop', blocked: null, names: { fr: 'Rose de Taïf' } });
@@ -236,18 +243,18 @@ describe('catalog moderation', () => {
 
 describe('platform', () => {
   it('feature flags: everyone on staff reads them; only super admins switch them, with a reason, per store or for all', async () => {
-    const store = (await ok(await call('GET', '/v1/admin/stores', as.operations_admin!.token))).find((x: any) => x.slug === 'mb-parfum');
+    const store = (await ok(await call('GET', '/v1/admin/stores', as.operations_admin!.token))).find((x: any) => x.slug === storeSlug);
     expect((await call('PUT', `/v1/admin/feature-flags/${flagKey}`, as.operations_admin!.token, { enabledByDefault: true, ...why })).statusCode).toBe(403);
-    const features = async () => (await app.inject({ method: 'GET', url: '/v1/stores/mb-parfum/features' })).json().data[flagKey];
+    const features = async () => (await app.inject({ method: 'GET', url: `/v1/stores/${storeSlug}/features` })).json().data[flagKey];
     expect(await features()).toBe(false);
-    await ok(await call('PUT', `/v1/admin/feature-flags/${flagKey}/stores/${store.id}`, superAdmin.token, { enabled: true, reason: 'Essai sur MB Parfum' }));
+    await ok(await call('PUT', `/v1/admin/feature-flags/${flagKey}/stores/${store.id}`, superAdmin.token, { enabled: true, reason: 'Essai sur une boutique' }));
     expect(await features()).toBe(true);
     const flags = await ok(await call('PUT', `/v1/admin/feature-flags/${flagKey}/stores/${store.id}`, superAdmin.token, { enabled: null, reason: 'Fin de l’essai' }));
     expect(flags.find((f: any) => f.key === flagKey).overrides).toEqual([]);
     await ok(await call('PUT', `/v1/admin/feature-flags/${flagKey}`, superAdmin.token, { enabledByDefault: true, reason: 'Ouverture à tous' }));
     expect(await features()).toBe(true);
     const log = await ok(await call('GET', `/v1/admin/audit-log?entityType=feature_flag&entityId=${flagKey}`, superAdmin.token));
-    expect(log.map((e: any) => e.metadata.reason)).toEqual(['Ouverture à tous', 'Fin de l’essai', 'Essai sur MB Parfum']);
+    expect(log.map((e: any) => e.metadata.reason)).toEqual(['Ouverture à tous', 'Fin de l’essai', 'Essai sur une boutique']);
   });
 
   it('analytics give one row per day; payments are listed with amounts due', async () => {

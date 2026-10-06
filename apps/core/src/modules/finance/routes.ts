@@ -80,6 +80,7 @@ export async function financeRoutes(app: FastifyInstance) {
 
   app.post('/v1/admin/finance/settlements', can('finance.manage'), async (req, reply) => {
     const body = z.object({ merchantId: z.uuid(), currency: z.string().length(3).toUpperCase() }).parse(req.body);
+    await assertNoConflictOfInterest(app.db, authOf(req).userId, body.merchantId);
     return reply.status(201).send({ data: await createSettlement(app.db, actor(req), body.merchantId, body.currency) });
   });
 

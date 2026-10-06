@@ -302,14 +302,19 @@ describe('permissions and sensitive data', () => {
     expect(mine.payoutMethod.accountNumber).toBeUndefined();
     expect(JSON.stringify(mine)).not.toContain('Encrypted');
 
-    const full = (await call('GET', `/v1/admin/merchants/${merchant.id}`, support.token)).json().data;
+    // Support staff see the last 4 digits; verification reviewers see the full numbers.
+    const masked = (await call('GET', `/v1/admin/merchants/${merchant.id}`, support.token)).json().data;
+    expect(masked.identity).toMatchObject({ documentNumberLast4: '7890' });
+    expect(masked.identity.documentNumber).toBeUndefined();
+    expect(masked.payoutMethod.accountNumber).toBeUndefined();
+    const full = (await call('GET', `/v1/admin/merchants/${merchant.id}`, admin.token)).json().data;
     expect(full.identity.documentNumber).toBe('109901234567890');
     expect(full.payoutMethod.accountNumber).toBe('00799999001234567890');
     const views = await db
       .select()
       .from(s.auditLogs)
       .where(and(eq(s.auditLogs.entityId, merchant.id), eq(s.auditLogs.action, 'merchants.file.viewed')));
-    expect(views).toHaveLength(1);
+    expect(views).toHaveLength(2);
     expect(views[0]!.actorUserId).toBe(support.userId);
   });
 

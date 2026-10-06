@@ -22,7 +22,8 @@ export async function merchantAdminRoutes(app: FastifyInstance) {
 
   app.get('/v1/admin/merchants/:merchantId', can('merchants.read'), async (req) => {
     const { merchantId } = merchantParams.parse(req.params);
-    const file = await getMerchantFile(app.db, app.secrets, merchantId, true);
+    // Full ID and account numbers only for verification reviewers; other staff see the last 4 digits.
+    const file = await getMerchantFile(app.db, app.secrets, merchantId, authOf(req).permissions.has('verification.review'));
     await audit(app.db, actorFrom(req), { action: 'merchants.file.viewed', entityType: 'merchant', entityId: merchantId });
     return { data: file };
   });

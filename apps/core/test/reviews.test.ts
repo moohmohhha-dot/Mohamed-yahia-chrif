@@ -51,8 +51,9 @@ async function buyer(opts: { user?: TestUser; offers?: string[]; phone?: string;
 }
 
 const write = (user: TestUser, body: object) => call('POST', '/v1/me/reviews', user.token, body);
+/** Reviews the main product (`offerId`); an order may hold other lines, in any order. */
 const productReview = (user: TestUser, order: any, extra: object = {}) =>
-  write(user, { type: 'product', orderLineId: order.lines[0].id, rating: 5, body: 'Tenue excellente, très bon sillage.', ...extra });
+  write(user, { type: 'product', orderLineId: (order.lines.find((l: any) => l.offerId === offerId) ?? order.lines[0]).id, rating: 5, body: 'Tenue excellente, très bon sillage.', ...extra });
 const moderate = (reviewId: string, action: string, note = 'Vérifié par la modération', user = support) => call('POST', `/v1/admin/reviews/${reviewId}/moderate`, user.token, { action, note });
 const publicList = async (query = '') => ok(await call('GET', `/v1/products/${productId}/reviews${query}`));
 

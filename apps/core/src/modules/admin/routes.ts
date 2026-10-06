@@ -1,5 +1,5 @@
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { asc } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { schema as s } from '@aruma/db';
 import { forbidden } from '../../shared/errors.js';
@@ -106,6 +106,17 @@ export async function adminRoutes(app: FastifyInstance) {
   // --- Platform -------------------------------------------------------------------------------------------
 
   app.get('/v1/admin/stores', can('overview.read'), async () => ({ data: await listStores(app.db) }));
+  /** The stores a merchant sells in, with its own commission there (null = store / platform rules). */
+  app.get('/v1/admin/merchants/:merchantId/stores', can('merchants.read'), async (req) => {
+    const { merchantId } = z.object({ merchantId: z.uuid() }).parse(req.params);
+    return {
+      data: await app.db
+        .select({ storeId: s.stores.id, slug: s.stores.slug, name: s.stores.name, status: s.storeMerchants.status, commissionBps: s.storeMerchants.commissionBps })
+        .from(s.storeMerchants)
+        .innerJoin(s.stores, eq(s.stores.id, s.storeMerchants.storeId))
+        .where(eq(s.storeMerchants.merchantId, merchantId)),
+    };
+  });
   app.get('/v1/admin/couriers', can('shipping.manage', 'orders.manage'), async () => ({ data: await app.db.select().from(s.couriers).orderBy(asc(s.couriers.name)) }));
   app.get('/v1/admin/pickup-points', can('shipping.manage'), async () => ({ data: await app.db.select().from(s.pickupPoints).orderBy(asc(s.pickupPoints.name)).limit(500) }));
 
