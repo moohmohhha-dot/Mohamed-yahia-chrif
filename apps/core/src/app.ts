@@ -5,6 +5,7 @@ import { sql } from 'drizzle-orm';
 import { ZodError } from 'zod';
 import type { Database } from '@aruma/db';
 import { AppError, isUniqueViolation } from './shared/errors.js';
+import { securityHeaders } from './shared/security-headers.js';
 import { authPlugin } from './modules/identity/index.js';
 import { registerModules } from './modules/index.js';
 import type { PaymentsClient } from './modules/payments/index.js';
@@ -28,6 +29,8 @@ declare module 'fastify' {
     storefrontUrl: string;
     /** Courier API integrations, by courier code. */
     couriers: CourierRegistry;
+    /** Staff must have signed in with two-step verification to use admin routes. */
+    staffMfaRequired: boolean;
   }
 }
 
@@ -46,6 +49,12 @@ export type CoreServices = {
 export type AppOptions = FastifyServerOptions & {
   /** Max login/register attempts per IP per minute. */
   authRateLimitMax?: number;
+  /** Max requests per IP per minute, on every route (internal service calls aside). */
+  globalRateLimitMax?: number;
+  /** ARUMA staff must use two-step verification (MFA) for every admin action. Always true in production. */
+  staffMfaRequired?: boolean;
+  /** Send Strict-Transport-Security (only when served over HTTPS). */
+  hsts?: boolean;
 };
 
 /**
@@ -55,9 +64,10 @@ export type AppOptions = FastifyServerOptions & {
 export function buildApp(
   db: Database,
   services: CoreServices,
-  { authRateLimitMax = 10, ...options }: AppOptions = {},
+  { authRateLimitMax = 10, globalRateLimitMax = 600, staffMfaRequired = true, hsts = false, ...options }: AppOptions = {},
 ) {
-  const app = Fastify(options);
+  // JSON bodies are small (files go through multipart); "__proto__" / "constructor" keys are refused.
+  const app = Fastify({ bodyLimit: 1024 * 1024, onProtoPoisoning: 'error', onConstructorPoisoning: 'error', ...options });
   // Amounts are stored as bigint (minor units); JSON has no bigint, and every amount fits in a safe integer.
   app.setReplySerializer((payload) => JSON.stringify(payload, (_key, value) => (typeof value === 'bigint' ? Number(value) : value)));
   app.decorate('db', db);
@@ -68,6 +78,8 @@ export function buildApp(
   app.decorate('paymentEventsSecret', services.paymentEventsSecret);
   app.decorate('storefrontUrl', services.storefrontUrl);
   app.decorate('couriers', services.couriers ?? {});
+  app.decorate('staffMfaRequired', staffMfaRequired);
+  securityHeaders(app, { hsts });
 
   app.setErrorHandler((error, req, reply) => {
     if (error instanceof AppError) {
@@ -105,7 +117,13 @@ export function buildApp(
     return { status: 'ok' };
   });
 
-  app.register(rateLimit, { global: false });
+  // Every IP gets a request budget; sensitive routes (sign-in, codes, uploads) have stricter limits of their own.
+  app.register(rateLimit, {
+    global: true,
+    max: globalRateLimitMax,
+    timeWindow: '1 minute',
+    allowList: (req) => req.url.startsWith('/internal/') || req.url === '/health',
+  });
   app.register(multipart);
   app.register(authPlugin);
   app.register(async (scope) => registerModules(scope, { authRateLimitMax }));

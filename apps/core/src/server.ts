@@ -4,6 +4,7 @@ import { buildApp } from './app.js';
 import { expireUnpaidCheckouts } from './modules/orders/payments.js';
 import { releaseExpiredReservations } from './modules/inventory/index.js';
 import { releaseMaturedBalances } from './modules/finance/index.js';
+import { securityAlerts } from './modules/admin/index.js';
 import { escalateUnanswered, finalizeDueDisputes } from './modules/disputes/index.js';
 import { escalateOverdueReturns } from './modules/returns/index.js';
 import { loadConfig } from './config.js';
@@ -18,7 +19,7 @@ if (config.NODE_ENV === 'production') {
 }
 const { db, pool } = createDb(config.DATABASE_URL);
 const services = {
-  secrets: createSecretBox(config.DATA_ENCRYPTION_KEY),
+  secrets: createSecretBox(config.DATA_ENCRYPTION_KEY, config.DATA_ENCRYPTION_KEYS_OLD.split(',').filter(Boolean)),
   storage: createLocalStorage(config.STORAGE_DIR),
   messages: createLogMessageSender(pino({ level: config.LOG_LEVEL })),
   payments: createHttpPaymentsClient({ baseUrl: config.PAYMENTS_URL, token: config.PAYMENTS_SERVICE_TOKEN }),
@@ -28,9 +29,19 @@ const services = {
   couriers: (config.COURIER_SANDBOX ? { sandbox: createSandboxCourier() } : {}) as CourierRegistry,
 };
 const app = buildApp(db, services, {
-  logger: { level: config.LOG_LEVEL },
+  // Credentials and codes never reach the logs, even if a request object is logged in full.
+  logger: {
+    level: config.LOG_LEVEL,
+    redact: {
+      paths: ['req.headers.authorization', 'req.headers.cookie', 'req.headers["x-payments-signature"]', '*.password', '*.newPassword', '*.currentPassword', '*.token', '*.code', '*.challengeToken', '*.accountNumber', '*.documentNumber'],
+      censor: '[redacted]',
+    },
+  },
   trustProxy: config.TRUST_PROXY,
   authRateLimitMax: config.AUTH_RATE_LIMIT_MAX,
+  globalRateLimitMax: config.GLOBAL_RATE_LIMIT_MAX,
+  staffMfaRequired: config.STAFF_MFA_REQUIRED,
+  hsts: config.HSTS,
 });
 
 // Background jobs: unpaid online checkouts expire after an hour; expired stock holds are released;
@@ -46,8 +57,16 @@ const jobs = setInterval(() => {
   finalizeDueDisputes(db, { payments: services.payments }).catch((e) => app.log.error(e, 'dispute finalization failed'));
 }, 5 * 60_000);
 
+// Security monitoring: high and medium alerts go to the log (an alerting service watches for "security_alert").
+const monitoring = setInterval(() => {
+  securityAlerts(db)
+    .then((alerts) => alerts.filter((a) => a.severity !== 'info').forEach((a) => app.log.warn({ security_alert: a }, `security alert: ${a.code}`)))
+    .catch((e) => app.log.error(e, 'security monitoring failed'));
+}, 15 * 60_000);
+
 const shutdown = async () => {
   clearInterval(jobs);
+  clearInterval(monitoring);
   await app.close();
   await pool.end();
   process.exit(0);

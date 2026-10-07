@@ -4,11 +4,12 @@ import { z } from 'zod';
 import { schema as s } from '@aruma/db';
 import { forbidden } from '../../shared/errors.js';
 import { actorFrom } from '../../shared/request-context.js';
-import { authOf, can, requireAuth, ROLE_PERMISSIONS, STAFF_ROLES } from '../identity/index.js';
+import { authOf, can, mfaStatus, requireAuth, resetMfa, ROLE_PERMISSIONS, STAFF_ROLES } from '../identity/index.js';
 import { blockProduct, describeProduct, listInventory, listOffers, listProducts, unblockProduct } from './catalog.js';
 import { analytics, listPayments, overview } from './insights.js';
+import { alertSubjects, securityAlerts } from './security.js';
 import { listAuditLog, listFlags, listSettlements, listStores, setFlagDefault, setFlagForStore } from './platform.js';
-import { describeUser, endSessions, grantStaffRole, listStaff, listUsers, reactivateUser, revokeStaffRole, suspendUser } from './users.js';
+import { describeUser, endSessions, grantStaffRole, guardStaffTarget, listStaff, listUsers, reactivateUser, revokeStaffRole, suspendUser } from './users.js';
 
 const page = { page: z.coerce.number().int().min(1).default(1), pageSize: z.coerce.number().int().min(1).max(200).default(50) };
 const reason = z.object({ reason: z.string().trim().min(5).max(1000) });
@@ -24,7 +25,18 @@ export async function adminRoutes(app: FastifyInstance) {
     const auth = authOf(req);
     if (!auth.staffRoles.length) throw forbidden('ARUMA staff only');
     const me = await describeUser(app.db, staff(req), auth.userId);
-    return { data: { id: me.id, email: me.email, displayName: me.displayName, roles: auth.staffRoles, permissions: [...auth.permissions].sort() } };
+    const mfa = await mfaStatus(app.db, auth.userId);
+    return {
+      data: {
+        id: me.id,
+        email: me.email,
+        displayName: me.displayName,
+        roles: auth.staffRoles,
+        permissions: [...auth.permissions].sort(),
+        // The panel asks to set up two-step verification first when it is required and missing.
+        mfa: { required: app.staffMfaRequired, enabled: mfa.enabled, sessionVerified: auth.mfa, recoveryCodesLeft: mfa.recoveryCodesLeft },
+      },
+    };
   });
 
   app.get('/v1/admin/overview', can('overview.read'), async (req) => ({ data: await overview(app.db, authOf(req)) }));
@@ -50,6 +62,15 @@ export async function adminRoutes(app: FastifyInstance) {
   app.post('/v1/admin/users/:userId/sessions/end', can('security.manage'), async (req) => ({
     data: await endSessions(app.db, staff(req), userParams.parse(req.params).userId, reason.parse(req.body).reason),
   }));
+
+  /** Lost phone: after checking who the person is, security removes their two-step verification (they set it up again). */
+  app.post('/v1/admin/users/:userId/mfa/reset', can('security.manage'), async (req) => {
+    const { userId } = userParams.parse(req.params);
+    const { reason: why } = reason.parse(req.body);
+    await guardStaffTarget(app.db, staff(req), userId);
+    await resetMfa(app.db, actorFrom(req), userId, why);
+    return { data: await describeUser(app.db, staff(req), userId) };
+  });
 
   app.get('/v1/admin/staff', can('staff.manage', 'security.read'), async () => ({ data: await listStaff(app.db) }));
   app.get('/v1/admin/staff/roles', can('overview.read'), async () => ({ data: { roles: STAFF_ROLES, permissions: ROLE_PERMISSIONS } }));
@@ -119,6 +140,12 @@ export async function adminRoutes(app: FastifyInstance) {
   });
   app.get('/v1/admin/couriers', can('shipping.manage', 'orders.manage'), async () => ({ data: await app.db.select().from(s.couriers).orderBy(asc(s.couriers.name)) }));
   app.get('/v1/admin/pickup-points', can('shipping.manage'), async () => ({ data: await app.db.select().from(s.pickupPoints).orderBy(asc(s.pickupPoints.name)).limit(500) }));
+
+  /** Security monitoring: brute force, locked accounts, refused access, sensitive changes, reconciliation. */
+  app.get('/v1/admin/security/alerts', can('security.read'), async () => {
+    const alerts = await securityAlerts(app.db);
+    return { data: { alerts, subjects: await alertSubjects(app.db, alerts) } };
+  });
 
   app.get('/v1/admin/audit-log', can('security.read'), async (req) => {
     const q = z

@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
 import { createDb, schema as s } from '@aruma/db';
 import { PERMISSIONS, ROLE_PERMISSIONS, STAFF_ROLES, type StaffRole } from '../src/modules/identity/index.js';
-import { buildTestApp, caller, makeStaff, registerUser, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
+import { buildTestApp, caller, makeStaff, registerUser, totpNow, testDatabaseUrl, uniqueSlug, verifyMerchantViaApi, type TestUser } from './helpers.js';
 
 const { db, pool } = createDb(testDatabaseUrl);
 const app = buildTestApp(db);
@@ -148,6 +148,13 @@ describe('staff roles', () => {
     expect((await call('POST', `/v1/admin/users/${newcomer.userId}/staff-roles`, superAdmin.token, { role: 'finance_admin', reason: 'x' })).statusCode).toBe(400);
     await ok(await call('POST', `/v1/admin/users/${newcomer.userId}/staff-roles`, superAdmin.token, { role: 'finance_admin', reason: 'Recrutée comme comptable' }), 201);
     expect(code(await call('POST', `/v1/admin/users/${newcomer.userId}/staff-roles`, superAdmin.token, { role: 'finance_admin', reason: 'Recrutée comme comptable' }))).toBe('ROLE_ALREADY_HELD');
+    // The role alone is not enough: staff work only with two-step verification.
+    expect(code(await call('GET', '/v1/admin/payments', newcomer.token))).toBe('MFA_REQUIRED');
+    const me = await ok(await call('GET', '/v1/admin/me', newcomer.token));
+    expect(me.mfa).toMatchObject({ required: true, enabled: false, sessionVerified: false });
+    const { secret } = await ok(await call('POST', '/v1/me/mfa/setup', newcomer.token));
+    const { recoveryCodes } = await ok(await call('POST', '/v1/me/mfa/enable', newcomer.token, { code: totpNow(secret) }));
+    expect(recoveryCodes).toHaveLength(10);
     expect((await call('GET', '/v1/admin/payments', newcomer.token)).statusCode).toBe(200);
 
     await ok(await call('POST', `/v1/admin/users/${newcomer.userId}/staff-roles/finance_admin/revoke`, superAdmin.token, { reason: 'Fin de contrat' }));
@@ -193,7 +200,10 @@ describe('users', () => {
     expect((await call('POST', `/v1/admin/users/${as.security_admin!.userId}/sessions/end`, as.security_admin!.token, why)).statusCode).toBe(403);
     const ended = await ok(await call('POST', `/v1/admin/users/${as.content_admin!.userId}/sessions/end`, superAdmin.token, why));
     expect(ended.sessionsEnded).toBe(1);
-    as.content_admin!.token = (await ok(await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: as.content_admin!.email, password: 'correct horse battery' } }))).token;
+    const step1 = await ok(await app.inject({ method: 'POST', url: '/v1/auth/login', payload: { email: as.content_admin!.email, password: 'correct horse battery' } }));
+    expect(step1).toMatchObject({ mfaRequired: true });
+    expect(step1.token).toBeUndefined();
+    as.content_admin!.token = (await ok(await app.inject({ method: 'POST', url: '/v1/auth/mfa', payload: { challengeToken: step1.challengeToken, code: totpNow() } }))).token;
   });
 });
 

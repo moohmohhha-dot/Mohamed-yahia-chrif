@@ -8,7 +8,8 @@
     "start": "tsx src/server.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "make-admin": "tsx src/scripts/make-admin.ts"
+    "make-admin": "tsx src/scripts/make-admin.ts",
+    "rotate-encryption-key": "tsx src/scripts/rotate-encryption-key.ts"
   },
   "dependencies": {
     "@aruma/db": "workspace:*",

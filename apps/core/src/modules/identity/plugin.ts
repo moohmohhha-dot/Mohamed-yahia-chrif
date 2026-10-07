@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import fp from 'fastify-plugin';
-import { forbidden, unauthorized } from '../../shared/errors.js';
+import { AppError, forbidden, unauthorized } from '../../shared/errors.js';
+import { audit } from '../platform/index.js';
 import type { Permission } from './permissions.js';
 import { authenticate, type AuthContext, type ClientInfo } from './service.js';
 
@@ -33,11 +34,26 @@ export async function requireAuth(req: FastifyRequest, _reply: FastifyReply) {
   if (!req.auth) throw unauthorized();
 }
 
-/** ARUMA staff only: the user's roles must give at least one of these permissions. */
+/**
+ * ARUMA staff only: the user's roles must give at least one of these permissions, and the session must
+ * have been opened with two-step verification. Refusals of signed-in people are recorded (monitoring).
+ */
 export function requirePermission(...permissions: Permission[]) {
   return async (req: FastifyRequest, reply: FastifyReply) => {
     await requireAuth(req, reply);
-    if (!permissions.some((p) => req.auth!.permissions.has(p))) throw forbidden();
+    const auth = req.auth!;
+    if (!permissions.some((p) => auth.permissions.has(p))) {
+      await audit(req.server.db, { userId: auth.userId, ip: req.ip ?? null }, {
+        action: 'security.access_denied',
+        entityType: 'route',
+        entityId: `${req.method} ${req.routeOptions.url ?? req.url}`,
+        metadata: { needs: permissions, staff: auth.staffRoles.length > 0 },
+      });
+      throw forbidden();
+    }
+    if (req.server.staffMfaRequired && !auth.mfa) {
+      throw new AppError(403, 'MFA_REQUIRED', 'Turn on two-step verification and sign in with it to use the Admin Panel');
+    }
   };
 }
 

@@ -3,7 +3,7 @@ import { and, asc, desc, eq, ilike, inArray, isNull, or, sql, type SQL } from 'd
 import { schema as s, type Database } from '@aruma/db';
 import { AppError, badRequest, forbidden, notFound } from '../../shared/errors.js';
 import type { Actor } from '../../shared/request-context.js';
-import { activeStaffRoles, ROLE_PERMISSIONS, type AuthContext, type StaffRole } from '../identity/index.js';
+import { activeStaffRoles, mfaStatus, ROLE_PERMISSIONS, type AuthContext, type StaffRole } from '../identity/index.js';
 import { audit, recordEvent } from '../platform/index.js';
 
 type Staff = AuthContext & { ip: string | null };
@@ -85,12 +85,13 @@ export async function describeUser(db: Database, viewer: Staff, userId: string) 
     merchants: memberships,
     orders: orders.map((o) => ({ currency: o.currency, count: o.n, totalMinor: Number(o.totalMinor) })),
     activeSessions: sessions[0]?.n ?? 0,
+    mfaEnabled: (await mfaStatus(db, userId)).enabled,
     storeCredit: credit?.map((c) => ({ currency: c.currency, balanceMinor: Number(c.balanceMinor) })) ?? undefined,
   };
 }
 
 /** Protects staff accounts: only a super admin acts on another staff member's account. */
-async function guardTarget(db: Database, actor: Staff, userId: string) {
+export async function guardStaffTarget(db: Database, actor: Staff, userId: string) {
   if (userId === actor.userId) throw forbidden('You cannot do this to your own account');
   const roles = await activeStaffRoles(db, userId);
   if (roles.length && !actor.permissions.has('staff.manage')) throw forbidden('Only a super admin acts on a staff account');
@@ -98,7 +99,7 @@ async function guardTarget(db: Database, actor: Staff, userId: string) {
 
 /** Suspension ends every session at once; the person cannot sign in until reactivated. */
 export async function suspendUser(db: Database, actor: Staff, userId: string, reason: string) {
-  await guardTarget(db, actor, userId);
+  await guardStaffTarget(db, actor, userId);
   return db.transaction(async (tx) => {
     const [user] = await tx.select().from(s.users).where(eq(s.users.id, userId)).for('update');
     if (!user) throw notFound('User');
@@ -112,7 +113,7 @@ export async function suspendUser(db: Database, actor: Staff, userId: string, re
 }
 
 export async function reactivateUser(db: Database, actor: Staff, userId: string, note: string) {
-  await guardTarget(db, actor, userId);
+  await guardStaffTarget(db, actor, userId);
   return db.transaction(async (tx) => {
     const [user] = await tx.select().from(s.users).where(eq(s.users.id, userId)).for('update');
     if (!user) throw notFound('User');
@@ -125,7 +126,7 @@ export async function reactivateUser(db: Database, actor: Staff, userId: string,
 
 /** Signs the person out everywhere (e.g. a stolen phone or password). */
 export async function endSessions(db: Database, actor: Staff, userId: string, reason: string) {
-  await guardTarget(db, actor, userId);
+  await guardStaffTarget(db, actor, userId);
   return db.transaction(async (tx) => {
     const ended = await tx.update(s.sessions).set({ revokedAt: new Date() }).where(and(eq(s.sessions.userId, userId), isNull(s.sessions.revokedAt))).returning({ id: s.sessions.id });
     await audit(tx, actorOf(actor), { action: 'identity.sessions.ended_by_staff', entityType: 'user', entityId: userId, metadata: { reason, count: ended.length } });

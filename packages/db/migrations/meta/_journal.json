@@ -225,6 +225,13 @@
       "when": 1791241184972,
       "tag": "0031_product_block_guard",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791331302801,
+      "tag": "0032_mfa",
+      "breakpoints": true
     }
   ]
 }

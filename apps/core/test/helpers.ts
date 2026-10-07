@@ -10,11 +10,16 @@ import { createHttpPaymentsClient } from '../src/modules/payments/index.js';
 import { createLocalStorage, createSecretBox, type OutboundMessage } from '../src/modules/platform/index.js';
 import { createSandboxCourier } from '../src/modules/shipping/index.js';
 import type { StaffRole } from '../src/modules/identity/index.js';
+import { codeAt, stepAt } from '../src/modules/identity/totp.js';
+import { eq } from 'drizzle-orm';
 
 export const testDatabaseUrl =
   process.env.TEST_DATABASE_URL ?? 'postgres://aruma:aruma@localhost:5432/aruma_test';
 
 const PAYMENTS_TOKEN = 'core-test-service-token-0123456789abcdef';
+/** Fixed test encryption key, so helpers can seal values (e.g. a staff member's MFA secret) like the app does. */
+export const TEST_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64');
+const testSecrets = createSecretBox(TEST_ENCRYPTION_KEY);
 const EVENTS_SECRET = 'core-test-events-secret-0123456789abcdef';
 
 /**
@@ -53,7 +58,7 @@ export function buildTestApp(db: Database, options: AppOptions = {}) {
   const app = buildApp(
     db,
     {
-      secrets: createSecretBox(randomBytes(32).toString('base64')),
+      secrets: testSecrets,
       storage: createLocalStorage(storageDir),
       messages: { send: async (m) => void sentMessages.push(m) },
       payments: payments.client,
@@ -61,7 +66,7 @@ export function buildTestApp(db: Database, options: AppOptions = {}) {
       storefrontUrl: 'https://mbparfum.test',
       couriers: { sandbox: sandboxCourier },
     },
-    { authRateLimitMax: 1000, ...options },
+    { authRateLimitMax: 1000, globalRateLimitMax: 1_000_000, ...options },
   );
   app.addHook('onClose', async () => {
     await payments.app.close();
@@ -222,7 +227,21 @@ export async function cheapestDelivery(app: FastifyInstance, lines: { offerId: s
     .map((seller) => ({ merchantId: seller.merchantId, methodId: seller.options[0]!.methodId }));
 }
 
-/** Makes a test user ARUMA staff (directly in the database, like the first super admin on a server). */
+/** The MFA secret given to every test staff member (see `makeStaff`). */
+export const STAFF_TOTP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+
+/**
+ * Makes a test user ARUMA staff (directly in the database, like the first super admin on a server), with
+ * two-step verification on and their current sessions verified, as after a real sign-in with a code.
+ */
 export async function makeStaff(db: Database, userId: string, ...roles: StaffRole[]) {
   for (const role of roles) await db.insert(schema.staffRoleGrants).values({ userId, role, reason: 'test' });
+  await db
+    .insert(schema.userMfa)
+    .values({ userId, secretEncrypted: testSecrets.seal(STAFF_TOTP_SECRET), enabledAt: new Date() })
+    .onConflictDoNothing();
+  await db.update(schema.sessions).set({ mfaVerifiedAt: new Date() }).where(eq(schema.sessions.userId, userId));
 }
+
+/** The current authenticator code for a secret (what the person's phone shows). */
+export const totpNow = (secret = STAFF_TOTP_SECRET, offsetSteps = 0) => codeAt(secret, stepAt() + offsetSteps);

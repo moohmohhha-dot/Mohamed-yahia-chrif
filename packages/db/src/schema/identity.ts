@@ -85,6 +85,8 @@ export const sessions = pgTable(
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     lastUsedAt: timestamp('last_used_at', { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp('revoked_at', { withTimezone: true }),
+    /** Set when the sign-in was confirmed with the second factor (authenticator code or recovery code). */
+    mfaVerifiedAt: timestamp('mfa_verified_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('sessions_user_idx').on(t.userId)],
