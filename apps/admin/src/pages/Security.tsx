@@ -4,21 +4,52 @@ import { Card, Empty, ErrorBox, Field, Json, Loading, Pager, useLoad } from '../
 import { useI18n } from '../i18n';
 
 const PAGE = 100;
+type Alert = { severity: 'high' | 'medium' | 'info'; code: string; count: number; subject: string | null; lastAt: string };
 type Entry = { id: string; action: string; actorType: string; actorName: string | null; actorEmail: string | null; entityType: string; entityId: string; ip: string | null; metadata: Record<string, unknown>; createdAt: string };
 
 /** The audit log: who did what, when and from where. It cannot be changed or deleted, by anyone. */
 export function SecurityPage() {
-  const { t, date } = useI18n();
+  const { t, date, label } = useI18n();
   const [filters, setFilters] = useState({ action: '', entityType: '', entityId: '' });
   const [applied, setApplied] = useState(filters);
   const [page, setPage] = useState(1);
   const qs = new URLSearchParams({ page: String(page), pageSize: String(PAGE), ...Object.fromEntries(Object.entries(applied).filter(([, v]) => v.trim())) });
   const log = useLoad(() => api<Entry[]>('GET', `/v1/admin/audit-log?${qs}`), [qs.toString()]);
-  const presets = ['staff.role', 'identity.user', 'identity.login.failed', 'catalog.product', 'platform.feature_flag', 'merchants.'];
+  const presets = ['staff.role', 'identity.user', 'identity.login.failed', 'identity.mfa', 'security.access_denied', 'catalog.product', 'platform.feature_flag', 'merchants.'];
+  const alerts = useLoad(() => api<{ alerts: Alert[]; subjects: Record<string, string> }>('GET', '/v1/admin/security/alerts'), []);
   return (
     <>
       <h1>{t('section.security')}</h1>
       <p className="muted">{t('security.intro')}</p>
+      <Card title={t('security.alerts')}>
+        <ErrorBox error={alerts.error} />
+        {!alerts.data ? (
+          <Loading />
+        ) : alerts.data.alerts.length === 0 ? (
+          <p className="muted" data-testid="no-alerts">{t('security.noAlerts')}</p>
+        ) : (
+          <table data-testid="alerts">
+            <tbody>
+              {alerts.data.alerts.map((a, i) => (
+                <tr key={i}>
+                  <td>
+                    <span className={`badge badge-${a.severity === 'high' ? 'bad' : a.severity === 'medium' ? 'warn' : 'muted'}`}>{label('severity', a.severity)}</span>
+                  </td>
+                  <td>
+                    <strong>{label('alert', a.code)}</strong>
+                    <div className="muted small" dir="ltr">
+                      {(a.subject && alerts.data!.subjects[a.subject]) ?? a.subject}
+                    </div>
+                  </td>
+                  <td className="num">{a.count}</td>
+                  <td className="small">{date(a.lastAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        <p className="muted small">{t('security.alertsHint')}</p>
+      </Card>
       <Card>
         <form className="form-grid" onSubmit={(e) => (e.preventDefault(), setPage(1), setApplied(filters))}>
           <Field label={t('security.action')} hint={t('security.actionHint')}>

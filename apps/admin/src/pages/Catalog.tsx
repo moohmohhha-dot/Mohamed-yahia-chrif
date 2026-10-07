@@ -114,7 +114,7 @@ type ProductDetailData = {
 };
 
 function ProductDetail({ productId, onBack }: { productId: string; onBack: () => void }) {
-  const { t, label, date } = useI18n();
+  const { t, label, date, locale } = useI18n();
   const { can } = useAuth();
   const url = `/v1/admin/products/${productId}`;
   const product = useLoad(() => api<ProductDetailData>('GET', url), [url]);
@@ -126,7 +126,7 @@ function ProductDetail({ productId, onBack }: { productId: string; onBack: () =>
     <>
       <div className="topbar">
         <h1 className="row">
-          {p.translations[0]?.name ?? p.slug} {p.blocked ? <Badge prefix="productStatus" value="blocked" /> : <Badge prefix="productStatus" value={p.status} />}
+          {nameIn(Object.fromEntries(p.translations.map((tr) => [tr.locale, tr.name])), locale)} {p.blocked ? <Badge prefix="productStatus" value="blocked" /> : <Badge prefix="productStatus" value={p.status} />}
         </h1>
         <button className="link" onClick={onBack}>
           {t('products.back')}

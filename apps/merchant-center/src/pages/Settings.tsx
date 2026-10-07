@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import { Card, ErrorBox, Field, Loading, useAction, useLoad } from '../components/ui';
 import { useI18n, type MessageKey } from '../i18n';
 import { can, useMerchant } from '../merchant-context';
+import { AccountSecurity } from './AccountSecurity';
 
 type Merchant = { name: string; activityCode: string; activityDescription: string | null; contactPhone: string | null; contactEmail: string | null };
 type Member = { userId: string; displayName: string; email: string; role: 'owner' | 'manager' | 'staff' };
@@ -44,6 +45,7 @@ export function SettingsPage() {
         </table>
         {stores.data?.length === 0 && <p className="muted">{t('dash.noStores')}</p>}
       </Card>
+      <AccountSecurity />
     </>
   );
 }

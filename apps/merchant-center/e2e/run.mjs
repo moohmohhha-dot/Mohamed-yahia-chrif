@@ -8,7 +8,7 @@
  * Screenshots are written to e2e/screenshots/.
  */
 import { spawn, execSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -84,6 +84,24 @@ const codeFor = async (to) => {
   }
   throw new Error(`no code sent to ${to}`);
 };
+/** What an authenticator app shows (RFC 6238), `offset` 30-second steps from now. */
+function totp(secret, offset = 0) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of secret.replace(/\s/g, '')) bits += alphabet.indexOf(c).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
+  const h = createHmac('sha1', key).update(counter).digest();
+  const o = h[h.length - 1] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
+/** ARUMA staff work only with two-step verification: turn it on for this session (as the Admin Panel asks). */
+async function enrollStaffMfa(token) {
+  const { secret } = await call('POST', '/v1/me/mfa/setup', token);
+  await call('POST', '/v1/me/mfa/enable', token, { code: totp(secret) });
+}
+
 function check(condition, message) {
   if (!condition) throw new Error(`Check failed: ${message}`);
   console.log(`  ✓ ${message}`);
@@ -137,6 +155,9 @@ const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.on('pageerror', (e) => {
   throw e;
 });
+// The built app runs under a Content-Security-Policy: any violation fails the run.
+const cspViolations = [];
+page.on('console', (m) => /Content Security Policy|Refused to/i.test(m.text()) && cspViolations.push(m.text()));
 
 try {
   console.log('Sign-up and merchant creation (Arabic, RTL)');
@@ -212,6 +233,7 @@ try {
   await db.connect();
   await db.query(`insert into staff_role_grants (user_id, role, reason) select id, 'super_admin', 'e2e' from users where email = $1`, [adminEmail]);
   await db.end();
+  await enrollStaffMfa(admin.token);
   await call('POST', `/v1/merchants/${merchantId}/verifications/email/send-code`, owner.token);
   await call('POST', `/v1/merchants/${merchantId}/verifications/email/confirm`, owner.token, { code: await codeFor(ownerEmail) });
   await call('PUT', `/v1/merchants/${merchantId}/payout-method`, owner.token, {
@@ -516,6 +538,7 @@ try {
   await db2.connect();
   await db2.query(`insert into staff_role_grants (user_id, role, reason) select id, 'super_admin', 'e2e' from users where email = $1`, [admin2Email]);
   await db2.end();
+  await enrollStaffMfa(admin2.token);
   const upheld = await call('POST', `/v1/admin/disputes/${opened.data.id}/appeal-decision`, admin2.token, { result: 'upheld', text: 'Décision confirmée après nouvel examen du dossier.' });
   check(String(sameAdmin).includes('403') && upheld.status === 'resolved', 'the appeal is decided by another administrator, never the first one');
   await page.reload();
@@ -525,10 +548,34 @@ try {
   await page.screenshot({ path: join(shots, '9-dispute-en.png'), fullPage: true });
 
 
+  console.log('Account security (English)');
+  await page.locator('.nav-link', { hasText: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Turn on' }).click();
+  const secret = (await page.getByTestId('mfa-secret').inputValue()).replace(/\s/g, '');
+  await page.locator('input[autocomplete="one-time-code"]').fill(totp(secret));
+  await page.getByRole('button', { name: 'Turn on' }).click();
+  await page.getByTestId('recovery-codes').waitFor();
+  check((await page.getByTestId('recovery-codes').textContent()).trim().split('\n').length === 10, 'owner turned on two-step verification from Settings (QR / key), 10 recovery codes');
+  const old = await fetch(`${API}/v1/me`, { headers: { authorization: `Bearer ${owner.token}` } });
+  check(old.status === 401, 'other devices were signed out');
+  await page.getByRole('button', { name: 'Log out' }).click();
+  await page.getByRole('button', { name: 'Sign in' }).waitFor();
+  await page.getByLabel('Email', { exact: true }).fill(ownerEmail);
+  await page.getByLabel('Password', { exact: true }).fill('a strong password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await page.locator('input[autocomplete="one-time-code"]').fill(totp(secret, 1));
+  await page.getByRole('button', { name: 'Verify' }).click();
+  await page.locator('input[autocomplete="one-time-code"]').waitFor({ state: 'detached' });
+  check((await fetch(`${API}/v1/me`, { headers: { authorization: `Bearer ${await page.evaluate(() => localStorage.getItem('aruma.token'))}` } })).status === 200, 'signed in again with the code');
+  check(true, 'sign-in now asks for the authenticator code');
+  await page.screenshot({ path: join(shots, '10-security-en.png'), fullPage: true });
+
+  await page.goto(`${UI}/m/${merchantId}/dashboard`);
   await page.getByLabel('Language').first().selectOption('ar');
   await page.locator('.nav-link', { hasText: 'لوحة القيادة' }).click();
   await page.getByText('حسابك موثّق').waitFor();
   await page.screenshot({ path: join(shots, '4-dashboard-verified-ar.png'), fullPage: true });
+  check(cspViolations.length === 0, `no Content-Security-Policy violation in the browser${cspViolations.length ? `: ${cspViolations[0]}` : ''}`);
   console.log('\nAll end-to-end checks passed.');
 } catch (error) {
   await page.screenshot({ path: join(shots, 'failure.png'), fullPage: true }).catch(() => {});

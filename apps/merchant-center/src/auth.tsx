@@ -6,6 +6,9 @@ type Auth = {
   user: User | null;
   ready: boolean;
   login: (email: string, password: string) => Promise<void>;
+  /** Password accepted; the authenticator code is next (two-step verification on). */
+  awaitingCode: boolean;
+  verifyCode: (code: string) => Promise<void>;
   register: (email: string, password: string, displayName: string, locale: string) => Promise<void>;
   logout: () => Promise<void>;
 };
@@ -14,6 +17,7 @@ const Ctx = createContext<Auth | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
+  const [challenge, setChallenge] = useState<string | null>(null);
 
   const clear = useCallback(() => {
     tokenStore.set(null);
@@ -39,7 +43,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         user,
         ready,
-        login: async (email, password) => signedIn(await api('POST', '/v1/auth/login', { email, password })),
+        login: async (email, password) => {
+          const data = await api('POST', '/v1/auth/login', { email, password });
+          if (data.mfaRequired) return setChallenge(data.challengeToken);
+          signedIn(data);
+        },
+        awaitingCode: challenge !== null,
+        verifyCode: async (code) => {
+          signedIn(await api('POST', '/v1/auth/mfa', { challengeToken: challenge, code }));
+          setChallenge(null);
+        },
         register: async (email, password, displayName, locale) =>
           signedIn(await api('POST', '/v1/auth/register', { email, password, displayName, locale })),
         logout: async () => {

@@ -8,7 +8,7 @@
  * English and French. Screenshots are written to e2e/screenshots/.
  */
 import { spawn, execSync } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { mkdirSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -84,6 +84,31 @@ const codeFor = async (to) => {
   }
   throw new Error(`no code sent to ${to}`);
 };
+/** What an authenticator app shows (RFC 6238), `offset` 30-second steps from now. */
+function totp(secret, offset = 0) {
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+  let bits = '';
+  for (const c of secret.replace(/\s/g, '')) bits += alphabet.indexOf(c).toString(2).padStart(5, '0');
+  const key = Buffer.from(bits.match(/.{8}/g).map((b) => parseInt(b, 2)));
+  const counter = Buffer.alloc(8);
+  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000) + offset));
+  const h = createHmac('sha1', key).update(counter).digest();
+  const o = h[h.length - 1] & 15;
+  return String((h.readUInt32BE(o) & 0x7fffffff) % 1_000_000).padStart(6, '0');
+}
+const secrets = {};
+/** First sign-in of a staff member: the panel requires two-step verification before anything else. */
+async function enrollMfa(who, labels) {
+  await page.getByTestId('mfa-secret').waitFor();
+  secrets[who] = (await page.getByTestId('mfa-secret').inputValue()).replace(/\s/g, '');
+  await page.getByLabel(labels.code, { exact: true }).fill(totp(secrets[who]));
+  await page.getByRole('button', { name: labels.turnOn }).click();
+  await page.getByTestId('recovery-codes').waitFor();
+  const codes = (await page.getByTestId('recovery-codes').textContent()).trim().split('\n');
+  check(codes.length === 10, `${who}: two-step verification set up with the QR key; 10 recovery codes shown once`);
+  await page.getByRole('button', { name: labels.continue }).click();
+}
+
 function check(condition, message) {
   if (!condition) throw new Error(`Check failed: ${message}`);
   console.log(`  ✓ ${message}`);
@@ -139,6 +164,9 @@ const page = await browser.newPage({ viewport: { width: 1360, height: 900 } });
 page.on('pageerror', (e) => {
   throw e;
 });
+// The built app runs under a Content-Security-Policy: any violation fails the run.
+const cspViolations = [];
+page.on('console', (m) => /Content Security Policy|Refused to/i.test(m.text()) && cspViolations.push(m.text()));
 const nav = (name) => page.locator('.nav-link', { hasText: name }).first().click();
 
 try {
@@ -186,6 +214,7 @@ try {
   await page.getByLabel('البريد الإلكتروني').fill(`super-${run}@example.com`);
   await page.getByLabel('كلمة المرور').fill(password);
   await page.getByRole('button', { name: 'دخول' }).click();
+  await enrollMfa('super', { code: 'الرمز', turnOn: 'تفعيل', continue: 'متابعة' });
   await page.getByRole('heading', { name: `مرحبًا Super ${run}` }).waitFor();
   check((await page.locator('.nav-link').count()) === 28, 'a super admin sees all 28 sections');
   await page.getByTestId('queues').getByText('تجار للتوثيق').waitFor();
@@ -232,7 +261,10 @@ try {
   check(true, 'reactivated with a reason');
 
   console.log('Catalog moderation (Content Admin)');
-  await call('PUT', `/v1/admin/stores/mb-parfum/merchants/${merchant.id}`, superAdmin.token, { commissionBps: null });
+  // The super admin's session in the panel is the one confirmed with two-step verification.
+  const adminToken = await page.evaluate(() => localStorage.getItem('aruma.admin.token'));
+  check((await fetch(`${API}/v1/admin/me`, { headers: { authorization: `Bearer ${superAdmin.token}` } })).status === 401, 'turning on two-step verification signed out the other session');
+  await call('PUT', `/v1/admin/stores/mb-parfum/merchants/${merchant.id}`, adminToken, { commissionBps: null });
   const slug = `oud-${run}`;
   const product = await call('POST', `${m}/products`, owner.token, {
     storeSlug: 'mb-parfum',
@@ -245,6 +277,7 @@ try {
   await page.getByLabel('Email').fill(`content-${run}@example.com`);
   await page.getByLabel('Password').fill(password);
   await page.getByRole('button', { name: 'Sign in' }).click();
+  await enrollMfa('content', { code: 'Code', turnOn: 'Turn on', continue: 'Continue' });
   await page.getByRole('heading', { name: `Hello Content ${run}` }).waitFor();
   const sections = await page.locator('.nav-link').allTextContents();
   check(sections.length === 9 && !sections.some((s) => /Users|Payouts|Finance/.test(s)), 'a content admin only sees content sections (9): no users, no money');
@@ -260,7 +293,8 @@ try {
   const republish = await fetch(`${API}${m}/products/${product.id}`, { method: 'PATCH', headers: { authorization: `Bearer ${owner.token}`, 'content-type': 'application/json' }, body: JSON.stringify({ status: 'active' }) }).then((r) => r.json());
   check(shown.status === 404 && republish.error?.code === 'PRODUCT_BLOCKED', 'product taken off sale with a reason; the merchant cannot publish it again');
   await page.screenshot({ path: join(shots, '4-product-blocked-en.png'), fullPage: true });
-  const forbidden = await fetch(`${API}/v1/admin/finance/trial-balance`, { headers: { authorization: `Bearer ${content.token}` } });
+  const contentToken = await page.evaluate(() => localStorage.getItem('aruma.admin.token'));
+  const forbidden = await fetch(`${API}/v1/admin/finance/trial-balance`, { headers: { authorization: `Bearer ${contentToken}` } });
   check(forbidden.status === 403, 'the server refuses what the role does not allow (finance for a content admin)');
 
   console.log('Audit, flags and commission (Super Admin, French)');
@@ -269,9 +303,21 @@ try {
   await page.getByLabel('E-mail').fill(`super-${run}@example.com`);
   await page.getByLabel('Mot de passe').fill(password);
   await page.getByRole('button', { name: 'Se connecter' }).click();
+  // Second sign-in: password, then the code (never the one already used).
+  const codeField = page.locator('input[autocomplete="one-time-code"]');
+  await codeField.fill('000000');
+  await page.getByRole('button', { name: 'Vérifier' }).click();
+  await page.getByText('Ce code n’est pas valide.').waitFor();
+  await codeField.fill(totp(secrets.super, 1));
+  await page.getByRole('button', { name: 'Vérifier' }).click();
+  await page.getByTestId('whoami').getByText(`Super ${run}`).waitFor();
+  check(true, 'sign-in needs the authenticator code; a wrong code is refused');
   await nav('Sécurité');
   await page.getByRole('button', { name: 'staff.role', exact: true }).click();
   await page.getByTestId('audit-log').getByText('Responsable catalogue MB Parfum').first().waitFor();
+  await page.getByText('Alertes (dernière heure / 24 h)').waitFor();
+  await page.getByText('Rôle de l’équipe modifié').first().waitFor();
+  check(true, 'security alerts show the staff role change of the last 24 hours');
   check(true, 'the audit log shows who granted the role and why');
   await nav('Fonctionnalités');
   const flag = page.getByTestId(`flag-${flagKey}`);
@@ -299,6 +345,7 @@ try {
   await nav('Publicités');
   await page.getByText('Phase 3').waitFor();
   check(true, 'later modules say when they arrive (no sample data)');
+  check(cspViolations.length === 0, `no Content-Security-Policy violation in the browser${cspViolations.length ? `: ${cspViolations[0]}` : ''}`);
   console.log('\nAll Admin Panel checks passed.');
 } catch (error) {
   await page.screenshot({ path: join(shots, 'failure.png'), fullPage: true }).catch(() => {});

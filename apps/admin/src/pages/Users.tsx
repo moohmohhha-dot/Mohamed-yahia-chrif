@@ -25,6 +25,7 @@ type UserDetail = {
   merchants: { merchantId: string; name: string; role: string; verificationStatus: string }[];
   orders: { currency: string; count: number; totalMinor: number }[];
   activeSessions: number;
+  mfaEnabled: boolean;
   storeCredit?: { currency: string; balanceMinor: number }[];
 };
 
@@ -143,6 +144,7 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
               [t('users.country'), u.country],
               [t('users.since'), date(u.createdAt)],
               [t('users.sessions'), u.activeSessions],
+              [t('mfa.title'), u.mfaEnabled ? t('mfa.on') : t('mfa.off')],
               [t('users.orders'), u.orders.length ? u.orders.map((o) => `${o.count} · ${money(o.totalMinor, o.currency)}`).join(' / ') : '0'],
               ...(u.storeCredit ? ([[t('users.storeCredit'), u.storeCredit.map((c) => money(c.balanceMinor, c.currency)).join(' / ') || '0']] as [string, string][]) : []),
             ]}
@@ -177,6 +179,9 @@ function UserDetailView({ userId, onBack }: { userId: string; onBack: () => void
             )}
             {can('users.manage') && u.status === 'suspended' && (
               <ReasonAction label={t('users.reactivate')} onConfirm={(reason) => api('POST', `${url}/reactivate`, { reason }).then(reload)} />
+            )}
+            {can('security.manage') && u.mfaEnabled && (
+              <ReasonAction label={t('mfa.reset')} danger onConfirm={(reason) => api('POST', `${url}/mfa/reset`, { reason }).then(reload)} />
             )}
             {can('security.manage') && u.activeSessions > 0 && (
               <ReasonAction label={t('users.endSessions')} onConfirm={(reason) => api('POST', `${url}/sessions/end`, { reason }).then(reload)} />

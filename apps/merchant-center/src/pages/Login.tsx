@@ -6,7 +6,8 @@ import { useI18n } from '../i18n';
 
 export function LoginPage() {
   const { t, locale } = useI18n();
-  const { login, register } = useAuth();
+  const { login, register, awaitingCode, verifyCode } = useAuth();
+  const [code, setCode] = useState('');
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [form, setForm] = useState({ email: '', password: '', displayName: '' });
   const action = useAction();
@@ -22,6 +23,24 @@ export function LoginPage() {
   return (
     <div className="auth-page">
       <Card title={mode === 'login' ? t('auth.title') : t('auth.registerTitle')} actions={<LanguageSwitcher />}>
+        {awaitingCode ? (
+          <form
+            className="stack"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void action.run(() => verifyCode(code.trim()));
+            }}
+          >
+            <p className="small">{t('mfa.enterCode')}</p>
+            <Field label={t('mfa.code')} hint={t('mfa.codeHint')}>
+              <input required autoFocus inputMode="numeric" autoComplete="one-time-code" maxLength={16} value={code} onChange={(e) => setCode(e.target.value)} dir="ltr" />
+            </Field>
+            <ErrorBox error={action.error} />
+            <button className="primary" disabled={action.pending}>
+              {t('mfa.verify')}
+            </button>
+          </form>
+        ) : (
         <form className="stack" onSubmit={submit}>
           {mode === 'register' && (
             <Field label={t('auth.displayName')}>
@@ -31,11 +50,11 @@ export function LoginPage() {
           <Field label={t('auth.email')}>
             <input required type="email" value={form.email} onChange={set('email')} autoComplete="email" />
           </Field>
-          <Field label={t('auth.password')}>
+          <Field label={t('auth.password')} hint={mode === 'register' ? t('password.hint') : undefined}>
             <input
               required
               type="password"
-              minLength={mode === 'register' ? 8 : 1}
+              minLength={mode === 'register' ? 10 : 1}
               value={form.password}
               onChange={set('password')}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
@@ -52,6 +71,7 @@ export function LoginPage() {
             </button>
           </p>
         </form>
+        )}
       </Card>
     </div>
   );

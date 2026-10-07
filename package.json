@@ -16,6 +16,17 @@
     "dev:merchant": "pnpm --filter @aruma/merchant-center dev",
     "e2e:merchant": "pnpm --filter @aruma/merchant-center e2e",
     "dev:payments": "pnpm --filter @aruma/payments dev",
-    "db:migrate:payments": "pnpm --filter @aruma/payments migrate"
+    "db:migrate:payments": "pnpm --filter @aruma/payments migrate",
+    "dev:admin": "pnpm --filter @aruma/admin dev",
+    "e2e:admin": "pnpm --filter @aruma/admin e2e",
+    "security:test": "pnpm --filter @aruma/core exec vitest run test/security.test.ts",
+    "security:audit": "pnpm audit --prod --audit-level moderate",
+    "backup": "scripts/backup.sh",
+    "backup:verify": "scripts/verify-backup.sh"
+  },
+  "pnpm": {
+    "overrides": {
+      "uuid@<11.1.1": "^11.1.1"
+    }
   }
 }
