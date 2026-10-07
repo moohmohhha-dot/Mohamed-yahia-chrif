@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../api';
 import { Card, ErrorBox, Field, Loading, StatusBadge, useAction, useLoad } from '../components/ui';
-import { useI18n } from '../i18n';
+import { useI18n, type MessageKey } from '../i18n';
 import { can, useMerchant } from '../merchant-context';
 import { loadStore, nameIn, sizeLabel, type Product, type StoreInfo } from './common';
 
@@ -114,6 +114,9 @@ function toDraft(p: Product | undefined, storeSlug: string): Draft {
   };
 }
 
+const CONCENTRATIONS: Record<string, string> = { edp: 'EDP', edt: 'EDT', edc: 'EDC', parfum: 'Parfum', extrait: 'Parfum' };
+type Classification = { categories: { slug: string; name: string }[]; attributes: { gender: string | null; concentration: string | null }; source: 'rules' | 'ai' };
+
 const splitNotes = (value: string) => value.split(/[,،]/).map((n) => n.trim()).filter(Boolean);
 
 /** Create or edit a perfume. Store and address are fixed once created. */
@@ -124,6 +127,8 @@ function ProductForm({ product, stores, onDone, onCancel }: { product?: Product;
   const [store, setStore] = useState<StoreInfo | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const action = useAction();
+  const suggesting = useAction();
+  const [suggested, setSuggested] = useState<MessageKey | null>(null);
 
   useEffect(() => {
     if (!draft.storeSlug) return;
@@ -134,6 +139,26 @@ function ProductForm({ product, stores, onDone, onCancel }: { product?: Product;
   const update = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
   const setTranslation = (locale: string, field: 'name' | 'description', value: string) =>
     update({ translations: { ...draft.translations, [locale]: { name: '', description: '', ...draft.translations[locale], [field]: value } } });
+
+  /** Category, gender and concentration read from the name and description (rules, or AI when ARUMA switched it on). */
+  const suggest = () => {
+    // Every language the merchant filled in: one may say "Eau de Toilette", another "pour homme".
+    const filled = Object.values(draft.translations).filter((v) => v.name.trim());
+    if (!filled.length) return;
+    const name = filled.map((v) => v.name.trim()).join(' · ').slice(0, 200);
+    const description = filled.map((v) => v.description.trim()).filter(Boolean).join('\n').slice(0, 3000);
+    void suggesting.run(async () => {
+      const r = await api<Classification>('POST', `/v1/merchants/${merchant.id}/ai/classify`, { storeSlug: draft.storeSlug, name, description: description || undefined, locale });
+      const found = r.categories.length > 0 || r.attributes.gender || r.attributes.concentration;
+      setDraft((d) => ({
+        ...d,
+        category: r.categories[0]?.slug ?? d.category,
+        gender: r.attributes.gender ?? d.gender,
+        concentration: (r.attributes.concentration && CONCENTRATIONS[r.attributes.concentration]) || d.concentration,
+      }));
+      setSuggested(!found ? 'ai.nothingFound' : r.source === 'ai' ? 'ai.suggestedByAi' : 'ai.suggested');
+    });
+  };
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
@@ -238,6 +263,13 @@ function ProductForm({ product, stores, onDone, onCancel }: { product?: Product;
             </Field>
           </div>
         ))}
+        <div className="row">
+          <button type="button" onClick={suggest} disabled={suggesting.pending || !Object.values(draft.translations).some((v) => v.name.trim())} data-testid="suggest-classification">
+            {t('ai.suggest')}
+          </button>
+          {suggested && <span className="muted small" data-testid="suggestion-note">{t(suggested)}</span>}
+        </div>
+        <ErrorBox error={suggesting.error} />
         <h3>{t('products.variants')}</h3>
         {draft.variants.map((v, i) => (
           <div className="form-grid" key={v.id ?? `new-${i}`}>

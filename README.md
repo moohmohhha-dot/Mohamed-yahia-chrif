@@ -18,6 +18,7 @@
 - مركز النزاعات: [docs/DISPUTES.md](docs/DISPUTES.md)
 - لوحة إدارة ARUMA (الأدوار والصلاحيات): [docs/ADMIN.md](docs/ADMIN.md)
 - البحث (عربي/فرنسي/إنجليزي، المرادفات، تصحيح الأخطاء، الفلاتر): [docs/SEARCH.md](docs/SEARCH.md)
+- الذكاء الاصطناعي (اختياري، يقرأ فقط، يعمل كل شيء بدونه): [docs/AI.md](docs/AI.md)
 - الأمان، النسخ الاحتياطي، التعافي، اختبار الاختراق: [docs/SECURITY.md](docs/SECURITY.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 

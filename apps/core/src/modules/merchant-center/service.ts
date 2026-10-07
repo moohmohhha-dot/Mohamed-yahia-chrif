@@ -14,7 +14,6 @@ export const UPCOMING_SECTIONS = {
   coupons: 2,
   promotions: 2,
   ads: 3,
-  analytics: 2,
   reviews: 2,
   messages: 2,
   support: 2,

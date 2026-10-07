@@ -47,7 +47,7 @@ export const NAV: { group: MessageKey; sections: Section[] }[] = [
     sections: [
       { id: 'support', permissions: ['support.manage'], phase: 2 },
       { id: 'cms', permissions: ['cms.manage'], phase: 1 },
-      { id: 'ai', permissions: ['ai.manage'], phase: 3 },
+      { id: 'ai', permissions: ['ai.manage'] },
       { id: 'flags', permissions: ['flags.read'] },
     ],
   },

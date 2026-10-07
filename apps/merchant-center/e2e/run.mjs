@@ -264,11 +264,18 @@ try {
   await page.getByRole('button', { name: 'New product' }).click();
   const form = page.locator('form').first();
   await form.getByLabel('Product address').fill(`ambre-${run}`);
-  await form.getByLabel('Category').selectOption('oriental');
   await form.getByLabel('Top notes').fill('saffron, pink pepper');
   await form.getByLabel('Name (العربية)').fill('عنبر الصحراء');
   await form.getByLabel('Name (Français)').fill('Ambre du Désert');
+  await form.getByLabel('Description (Français)').fill('Un parfum oriental chaud, Eau de Toilette pour homme.');
   await form.getByLabel('Name (English)').fill('Desert Amber');
+  // Category, gender and concentration suggested from what was written (rules: AI is off by default).
+  await form.getByTestId('suggest-classification').click();
+  await form.getByTestId('suggestion-note').getByText('Suggested from the name').waitFor();
+  check(
+    (await form.getByLabel('Category').inputValue()) === 'oriental' && (await form.getByLabel('For').inputValue()) === 'men' && (await form.getByLabel('Concentration').inputValue()) === 'EDT',
+    'category, gender and concentration suggested from the description; the merchant checks before saving',
+  );
   await form.getByLabel('SKU').fill(`AMB-${run}-50`);
   await form.getByLabel('Size (ml)').fill('50');
   await form.getByRole('button', { name: 'Create' }).click();
@@ -476,6 +483,14 @@ try {
   await page.getByTestId('order-history').getByText(`Return ${returnNumber}`).waitFor();
   check(true, 'history shows the return that closed the order');
   await page.screenshot({ path: join(shots, '5-order-en.png'), fullPage: true });
+
+  console.log('Insights (English)');
+  await page.locator('.nav-link', { hasText: 'Insights' }).click();
+  await page.getByTestId('sales-totals').waitFor();
+  await page.getByTestId('stock-forecast').getByText('Desert Amber').first().waitFor();
+  await page.getByTestId('price-positions').waitFor();
+  check((await page.getByTestId('ai-analysis').count()) === 0 && (await page.getByTestId('assistant').count()) === 0, 'insights work without AI: sales, stock forecast, prices (no AI text, no assistant while AI is off)');
+  await page.screenshot({ path: join(shots, '5b-insights-en.png'), fullPage: true });
 
   console.log('Reviews (English)');
   const review = (body) =>

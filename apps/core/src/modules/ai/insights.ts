@@ -30,14 +30,15 @@ const name = (names: Record<string, string> | null, locale: string, fallback: st
 
 export async function salesAnalysis(db: Database, merchantId: string, o: Options) {
   const period = (from: number, to: number) => sql`o.placed_at > now() - make_interval(days => ${from}) and o.placed_at <= now() - make_interval(days => ${to})`;
+  // Sales = orders that are not cancelled, returned or refunded (those are counted on their own).
   const totals = async (from: number, to: number) => {
     const { rows } = await db.execute<{ orders: number; cancelled: number; returned: number; revenue: string; units: number }>(sql`
-      select count(*) filter (where o.status <> 'cancelled')::int as orders,
+      select count(*) filter (where o.status not in ('cancelled', 'returned', 'refunded'))::int as orders,
              count(*) filter (where o.status = 'cancelled')::int as cancelled,
              count(*) filter (where o.status in ('returned', 'refunded'))::int as returned,
              coalesce(sum(o.subtotal_minor) filter (where o.status not in ('cancelled', 'returned', 'refunded')), 0)::text as revenue,
              coalesce((select sum(l.quantity) from order_lines l join orders o2 on o2.id = l.order_id
-                       where o2.merchant_id = ${merchantId} and o2.currency = ${o.currency} and o2.status <> 'cancelled'
+                       where o2.merchant_id = ${merchantId} and o2.currency = ${o.currency} and o2.status not in ('cancelled', 'returned', 'refunded')
                          and o2.placed_at > now() - make_interval(days => ${from}) and o2.placed_at <= now() - make_interval(days => ${to})), 0)::int as units
       from orders o where o.merchant_id = ${merchantId} and o.currency = ${o.currency} and ${period(from, to)}`);
     const r = rows[0]!;

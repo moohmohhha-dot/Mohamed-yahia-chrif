@@ -2,6 +2,7 @@ import type { ComponentType } from 'react';
 import { NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { useI18n, type MessageKey } from '../i18n';
+import { AiPage } from '../pages/Ai';
 import { AnalyticsPage } from '../pages/Analytics';
 import { ComingSoon } from '../pages/ComingSoon';
 import { DisputesPage } from '../pages/Disputes';
@@ -45,6 +46,7 @@ const PAGES: Record<string, ComponentType> = {
   fraud: FraudPage,
   security: SecurityPage,
   flags: FlagsPage,
+  ai: AiPage,
 };
 
 export function Shell() {

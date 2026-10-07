@@ -365,6 +365,20 @@ try {
   await nav('Publicités');
   await page.getByText('Phase 3').waitFor();
   check(true, 'later modules say when they arrive (no sample data)');
+  await page.locator('.nav-link').filter({ hasText: /^IA$/ }).click();
+  await page.getByTestId('ai-off').waitFor();
+  check((await page.getByTestId('ai-features').locator('tbody tr').count()) === 15, 'AI page: no provider configured (AI off), the 15 AI features with what runs without AI');
+  const master = page.getByTestId('ai-master');
+  await page.getByTestId('ai-master-toggle').click();
+  await page.getByLabel('Motif').fill('Essai de l’interrupteur général');
+  await page.getByRole('button', { name: 'Confirmer' }).click();
+  await master.getByText('Activé').waitFor();
+  await page.screenshot({ path: join(shots, '6-ai-fr.png'), fullPage: true });
+  await page.getByTestId('ai-master-toggle').click();
+  await page.getByLabel('Motif').fill('Fin de l’essai');
+  await page.getByRole('button', { name: 'Confirmer' }).click();
+  await master.getByText('Désactivé').waitFor();
+  check(true, 'the AI master switch is turned on and off with a written reason');
   check(cspViolations.length === 0, `no Content-Security-Policy violation in the browser${cspViolations.length ? `: ${cspViolations[0]}` : ''}`);
   console.log('\nAll Admin Panel checks passed.');
 } catch (error) {

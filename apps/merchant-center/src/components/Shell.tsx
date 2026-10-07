@@ -9,6 +9,7 @@ import { ComingSoon } from '../pages/ComingSoon';
 import { DashboardPage } from '../pages/Dashboard';
 import { DisputesPage } from '../pages/Disputes';
 import { BalancePage, SettlementsPage } from '../pages/Finance';
+import { InsightsPage } from '../pages/Insights';
 import { InventoryPage } from '../pages/Inventory';
 import { OffersPage } from '../pages/Offers';
 import { OrdersPage } from '../pages/Orders';
@@ -36,6 +37,7 @@ const PAGES: Partial<Record<SectionId, ComponentType>> = {
   shipping: ShippingPage,
   cod: CodPage,
   inventory: InventoryPage,
+  analytics: InsightsPage,
   payouts: PayoutsPage,
   balance: BalancePage,
   settlements: SettlementsPage,
