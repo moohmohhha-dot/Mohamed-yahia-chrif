@@ -279,7 +279,8 @@ describe('photos (prepared, off by default)', () => {
 
 describe('records', () => {
   it('reviews and their history cannot be deleted or reassigned', async () => {
-    const [review] = await db.select().from(s.reviews).limit(1);
+    // One of this file's reviews (other files may insert reviews of their own).
+    const [review] = await db.select().from(s.reviews).where(eq(s.reviews.productId, productId)).limit(1);
     await expect(db.execute(sql`delete from reviews where id = ${review!.id}`)).rejects.toThrow();
     await expect(db.execute(sql`update review_events set note = 'x' where review_id = ${review!.id}`)).rejects.toThrow();
     await expect(db.execute(sql`update reviews set customer_user_id = ${owner.userId} where id = ${review!.id}`)).rejects.toThrow();

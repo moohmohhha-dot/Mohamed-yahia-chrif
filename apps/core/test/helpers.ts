@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
 import { schema, type Database } from '@aruma/db';
 import { buildPaymentsApp, createPaymentsDb, createSandboxProvider, deliverEvents } from '@aruma/payments';
-import { buildApp, type AppOptions } from '../src/app.js';
+import { buildApp, type AppOptions, type CoreServices } from '../src/app.js';
 import { createHttpPaymentsClient } from '../src/modules/payments/index.js';
 import { createLocalStorage, createSecretBox, type OutboundMessage } from '../src/modules/platform/index.js';
 import { createSandboxCourier } from '../src/modules/shipping/index.js';
@@ -50,7 +50,7 @@ function buildInProcessPayments() {
 }
 
 /** App wired with throwaway services: random encryption key, temp storage, in-memory messages, in-process payments. */
-export function buildTestApp(db: Database, options: AppOptions = {}) {
+export function buildTestApp(db: Database, options: AppOptions = {}, services: Partial<CoreServices> = {}) {
   const sentMessages: OutboundMessage[] = [];
   const storageDir = mkdtempSync(join(tmpdir(), 'aruma-storage-'));
   const payments = buildInProcessPayments();
@@ -65,6 +65,7 @@ export function buildTestApp(db: Database, options: AppOptions = {}) {
       paymentEventsSecret: EVENTS_SECRET,
       storefrontUrl: 'https://mbparfum.test',
       couriers: { sandbox: sandboxCourier },
+      ...services,
     },
     { authRateLimitMax: 1000, globalRateLimitMax: 1_000_000, ...options },
   );

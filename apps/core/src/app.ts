@@ -6,9 +6,11 @@ import { ZodError } from 'zod';
 import type { Database } from '@aruma/db';
 import { AppError, isUniqueViolation } from './shared/errors.js';
 import { securityHeaders } from './shared/security-headers.js';
+import { createAiLayer, interpreterFor, type AiLayer, type AiSettings } from './modules/ai/index.js';
 import { authPlugin } from './modules/identity/index.js';
 import { registerModules } from './modules/index.js';
 import type { PaymentsClient } from './modules/payments/index.js';
+import type { QueryInterpreter } from './modules/search/index.js';
 import type { CourierRegistry } from './modules/shipping/index.js';
 import type { FileStorage, MessageSender, SecretBox } from './modules/platform/index.js';
 
@@ -31,6 +33,10 @@ declare module 'fastify' {
     couriers: CourierRegistry;
     /** Staff must have signed in with two-step verification to use admin routes. */
     staffMfaRequired: boolean;
+    /** The optional AI layer (off when no provider is configured). */
+    ai: AiLayer;
+    /** How a store's search sentences are understood: rules, or AI + rules when switched on. */
+    queryInterpreter: (storeId: string) => Promise<QueryInterpreter>;
   }
 }
 
@@ -44,6 +50,8 @@ export type CoreServices = {
   storefrontUrl: string;
   /** Courier API integrations, by courier code (none: every courier is used with hand-entered tracking). */
   couriers?: CourierRegistry;
+  /** AI provider and limits. No provider = AI off; ARUMA works the same without it. */
+  ai?: Partial<AiSettings>;
 };
 
 export type AppOptions = FastifyServerOptions & {
@@ -79,6 +87,9 @@ export function buildApp(
   app.decorate('storefrontUrl', services.storefrontUrl);
   app.decorate('couriers', services.couriers ?? {});
   app.decorate('staffMfaRequired', staffMfaRequired);
+  const ai = createAiLayer(db, { provider: null, timeoutMs: 15_000, dailyTokenBudget: 500_000, userHourlyLimit: 30, ...services.ai });
+  app.decorate('ai', ai);
+  app.decorate('queryInterpreter', interpreterFor(ai));
   securityHeaders(app, { hsts });
 
   app.setErrorHandler((error, req, reply) => {

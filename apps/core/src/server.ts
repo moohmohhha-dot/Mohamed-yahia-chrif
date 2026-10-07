@@ -9,6 +9,7 @@ import { escalateUnanswered, finalizeDueDisputes } from './modules/disputes/inde
 import { processSearchQueue, purgeOldQueries, queueAllProducts } from './modules/search/index.js';
 import { escalateOverdueReturns } from './modules/returns/index.js';
 import { loadConfig } from './config.js';
+import { createAnthropicProvider } from './modules/ai/index.js';
 import { createHttpPaymentsClient } from './modules/payments/index.js';
 import { createLocalStorage, createLogMessageSender, createSecretBox } from './modules/platform/index.js';
 import { createSandboxCourier, type CourierRegistry } from './modules/shipping/index.js';
@@ -28,6 +29,13 @@ const services = {
   storefrontUrl: config.STOREFRONT_URL,
   // Courier API integrations. None is real yet: couriers are used with hand-entered tracking (docs/SHIPPING.md).
   couriers: (config.COURIER_SANDBOX ? { sandbox: createSandboxCourier() } : {}) as CourierRegistry,
+  // Optional AI layer: off unless AI_PROVIDER is set; then each feature is switched on in the Admin Panel.
+  ai: {
+    provider: config.AI_PROVIDER === 'anthropic' ? createAnthropicProvider({ apiKey: config.ANTHROPIC_API_KEY!, model: config.AI_MODEL }) : null,
+    timeoutMs: config.AI_TIMEOUT_MS,
+    dailyTokenBudget: config.AI_DAILY_TOKEN_BUDGET,
+    userHourlyLimit: config.AI_USER_HOURLY_LIMIT,
+  },
 };
 const app = buildApp(db, services, {
   // Credentials and codes never reach the logs, even if a request object is logged in full.
@@ -71,6 +79,7 @@ const searchJob = setInterval(() => {
 const searchDaily = setInterval(() => {
   queueAllProducts(db).catch((e) => app.log.error(e, 'search daily re-index failed'));
   purgeOldQueries(db).catch((e) => app.log.error(e, 'search history purge failed'));
+  app.ai.cache.purge().catch((e) => app.log.error(e, 'AI cache purge failed'));
 }, 24 * 3600_000);
 
 // Security monitoring: high and medium alerts go to the log (an alerting service watches for "security_alert").

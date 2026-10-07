@@ -246,6 +246,20 @@
       "when": 1791369606607,
       "tag": "0034_search_engine",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791371005028,
+      "tag": "0035_ai",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1791371006637,
+      "tag": "0036_ai_flags",
+      "breakpoints": true
     }
   ]
 }

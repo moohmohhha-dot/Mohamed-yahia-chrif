@@ -29,6 +29,8 @@ export type SearchInput = {
   source?: 'typed' | 'voice';
   /** Understand prices, gender, sorting… written in the query (default on). */
   understand?: boolean;
+  /** Record the query in the search statistics (default on; off for searches made by the AI assistant). */
+  log?: boolean;
 };
 
 const d = s.searchDocuments;
@@ -219,12 +221,11 @@ export async function search(db: Database, store: StoreContext, input: SearchInp
       if (other.total > result.total) suggestion = fixed.join(' ');
     }
   }
-  if (raw && input.page === 1) {
+  if (raw && input.page === 1 && input.log !== false) {
     // A corrected query is remembered corrected, so popular suggestions never repeat a typo.
     const logged = correctedFrom ? normalizeText(raw).replace(correctedFrom, words.join(' ')) : normalizeText(raw);
     await db.insert(s.searchQueries).values({ storeId: store.id, query: logged.slice(0, 200), locale: input.locale, results: result.total, source: input.source ?? 'typed' });
   }
-  const minorUnits = input.currency.minorUnits;
   return {
     query: {
       text: raw,
@@ -234,21 +235,43 @@ export async function search(db: Database, store: StoreContext, input: SearchInp
       understood: nl.understood,
       sort: result.sort,
     },
-    results: result.rows.map(({ doc, price }) => ({
-      id: doc.productId,
-      slug: doc.slug,
-      name: nameIn(doc.names, input.locale, store.defaultLocale),
-      brand: doc.brandName,
-      image: doc.image,
-      priceFrom: { currency: input.currency.code, amountMinor: Number(price), amount: (Number(price) / 10 ** minorUnits).toFixed(minorUnits) },
-      rating: { average: doc.ratingAvg, count: doc.ratingCount },
-      inStock: doc.inStock,
-      sellers: doc.merchantIds.length,
-      attributes: doc.attributes,
-    })),
+    results: result.rows.map(({ doc, price }) => toCard(doc, price, store, input)),
     facets: await facets(db, store, result.all, result.price, input.locale),
     meta: { total: result.total, page: input.page, pageSize: input.pageSize, totalPages: Math.ceil(result.total / input.pageSize), locale: input.locale, currency: input.currency.code },
   };
+}
+
+type Doc = typeof s.searchDocuments.$inferSelect;
+function toCard(doc: Doc, price: string, store: StoreContext, input: Pick<SearchInput, 'locale' | 'currency'>) {
+  const minorUnits = input.currency.minorUnits;
+  return {
+    id: doc.productId,
+    slug: doc.slug,
+    name: nameIn(doc.names, input.locale, store.defaultLocale),
+    brand: doc.brandName,
+    image: doc.image,
+    priceFrom: { currency: input.currency.code, amountMinor: Number(price), amount: (Number(price) / 10 ** minorUnits).toFixed(minorUnits) },
+    rating: { average: doc.ratingAvg, count: doc.ratingCount },
+    inStock: doc.inStock,
+    sellers: doc.merchantIds.length,
+    attributes: doc.attributes,
+  };
+}
+export type ProductCard = ReturnType<typeof toCard>;
+
+/**
+ * Product cards (as in search results) for the given products, in the given order, leaving out what a
+ * customer cannot buy now (hidden, or no price in the currency). Used by recommendations and the assistant.
+ */
+export async function productCards(db: Database, store: StoreContext, productIds: string[], input: Pick<SearchInput, 'locale' | 'currency'>): Promise<ProductCard[]> {
+  if (productIds.length === 0) return [];
+  const price = sql`(${d.minPrices}->>${input.currency.code})::bigint`;
+  const rows = await db
+    .select({ doc: d, price: sql<string>`${price}::text` })
+    .from(d)
+    .where(and(eq(d.storeId, store.id), eq(d.visible, true), sql`${price} is not null`, sql`${d.productId} = any(${uuidArray(productIds)})`));
+  const byId = new Map(rows.map((r) => [r.doc.productId, toCard(r.doc, r.price, store, input)]));
+  return productIds.map((id) => byId.get(id)).filter((c): c is ProductCard => Boolean(c));
 }
 
 // --- Autocomplete --------------------------------------------------------------------------------------

@@ -31,7 +31,19 @@ const envSchema = z.object({
   HSTS: z.enum(['true', 'false']).default('false').transform((v) => v === 'true'),
   /** Previous encryption keys (comma-separated), kept only to read data sealed before a key rotation. */
   DATA_ENCRYPTION_KEYS_OLD: z.string().default(''),
-});
+  /** AI layer (optional, docs/AI.md). none = off: every feature works without AI. */
+  AI_PROVIDER: z.enum(['none', 'anthropic']).default('none'),
+  /** Anthropic API key (console.anthropic.com), from the secrets manager. Required when AI_PROVIDER=anthropic. */
+  ANTHROPIC_API_KEY: z.preprocess((v) => (v === '' ? undefined : v), z.string().min(20).optional()),
+  /** Claude model used for every AI feature. */
+  AI_MODEL: z.string().min(3).default('claude-opus-5-5'),
+  /** A call slower than this is abandoned and the non-AI answer is used. */
+  AI_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(15_000),
+  /** Tokens per day for all AI features together; beyond it, features answer without AI until midnight. */
+  AI_DAILY_TOKEN_BUDGET: z.coerce.number().int().min(0).default(500_000),
+  /** AI calls per signed-in person per hour. */
+  AI_USER_HOURLY_LIMIT: z.coerce.number().int().min(1).default(30),
+}).refine((c) => c.AI_PROVIDER !== 'anthropic' || c.ANTHROPIC_API_KEY, { message: 'ANTHROPIC_API_KEY is required when AI_PROVIDER=anthropic', path: ['ANTHROPIC_API_KEY'] });
 
 export type Config = z.infer<typeof envSchema>;
 

@@ -4,4 +4,6 @@
  */
 export { searchRoutes } from './routes.js';
 export { processSearchQueue, queueAllProducts } from './indexer.js';
-export { purgeOldQueries } from './service.js';
+export { productCards, purgeOldQueries, search, type ProductCard, type SearchInput } from './service.js';
+export { normalizeText, queryWords } from './normalize.js';
+export { rulesInterpreter, type Interpretation, type QueryInterpreter, type SortKey } from './interpret.js';

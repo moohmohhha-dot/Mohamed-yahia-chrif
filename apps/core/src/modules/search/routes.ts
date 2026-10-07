@@ -53,7 +53,7 @@ export async function searchRoutes(app: FastifyInstance) {
         merchants: q.merchant,
         locale: resolveLocale(store, q.locale),
         currency: { code: currency.code, minorUnits: currency.minorUnits },
-      }),
+      }, await app.queryInterpreter(store.id)),
     };
   });
 

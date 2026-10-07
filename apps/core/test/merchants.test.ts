@@ -208,7 +208,8 @@ describe('merchant lifecycle: create → staff → verify → sell (details in m
 describe('feature flags', () => {
   it('returns defaults and applies per-store overrides', async () => {
     const url = '/v1/stores/mb-parfum/features';
-    expect((await call({ method: 'GET', url })).json().data).toEqual({
+    // (AI switches are listed too; test/ai.test.ts covers them.)
+    expect((await call({ method: 'GET', url })).json().data).toMatchObject({
       'checkout.cash_on_delivery': true,
       'checkout.online_payment': false,
       'shipping.pickup_points': false,
