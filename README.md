@@ -17,6 +17,7 @@
 - التقييمات والحماية من المزيف: [docs/REVIEWS.md](docs/REVIEWS.md)
 - مركز النزاعات: [docs/DISPUTES.md](docs/DISPUTES.md)
 - لوحة إدارة ARUMA (الأدوار والصلاحيات): [docs/ADMIN.md](docs/ADMIN.md)
+- البحث (عربي/فرنسي/إنجليزي، المرادفات، تصحيح الأخطاء، الفلاتر): [docs/SEARCH.md](docs/SEARCH.md)
 - الأمان، النسخ الاحتياطي، التعافي، اختبار الاختراق: [docs/SECURITY.md](docs/SECURITY.md)
 - خارطة الطريق: [docs/ROADMAP.md](docs/ROADMAP.md)
 

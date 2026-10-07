@@ -14,6 +14,7 @@ import { OrdersPage, PaymentsPage } from '../pages/Orders';
 import { OverviewPage } from '../pages/Overview';
 import { ReturnsPage } from '../pages/Returns';
 import { ReviewsPage } from '../pages/Reviews';
+import { SearchPage } from '../pages/Search';
 import { SecurityPage } from '../pages/Security';
 import { ShippingPage } from '../pages/Shipping';
 import { StaffPage, UsersPage } from '../pages/Users';
@@ -30,6 +31,7 @@ const PAGES: Record<string, ComponentType> = {
   products: ProductsPage,
   offers: OffersPage,
   inventory: InventoryPage,
+  search: SearchPage,
   orders: OrdersPage,
   payments: PaymentsPage,
   shipping: ShippingPage,

@@ -216,7 +216,7 @@ try {
   await page.getByRole('button', { name: 'دخول' }).click();
   await enrollMfa('super', { code: 'الرمز', turnOn: 'تفعيل', continue: 'متابعة' });
   await page.getByRole('heading', { name: `مرحبًا Super ${run}` }).waitFor();
-  check((await page.locator('.nav-link').count()) === 28, 'a super admin sees all 28 sections');
+  check((await page.locator('.nav-link').count()) === 29, 'a super admin sees all 29 sections');
   await page.getByTestId('queues').getByText('تجار للتوثيق').waitFor();
   check(true, 'the overview shows the merchants waiting for verification');
   await page.screenshot({ path: join(shots, '1-overview-ar.png'), fullPage: true });
@@ -280,7 +280,7 @@ try {
   await enrollMfa('content', { code: 'Code', turnOn: 'Turn on', continue: 'Continue' });
   await page.getByRole('heading', { name: `Hello Content ${run}` }).waitFor();
   const sections = await page.locator('.nav-link').allTextContents();
-  check(sections.length === 9 && !sections.some((s) => /Users|Payouts|Finance/.test(s)), 'a content admin only sees content sections (9): no users, no money');
+  check(sections.length === 10 && !sections.some((s) => /Users|Payouts|Finance/.test(s)), 'a content admin only sees content sections (10): no users, no money');
   await nav('Products');
   await page.getByLabel('Product name or slug').fill(`Royal oud ${run}`);
   await page.getByRole('button', { name: 'Search' }).click();
@@ -296,6 +296,26 @@ try {
   const contentToken = await page.evaluate(() => localStorage.getItem('aruma.admin.token'));
   const forbidden = await fetch(`${API}/v1/admin/finance/trial-balance`, { headers: { authorization: `Bearer ${contentToken}` } });
   check(forbidden.status === 403, 'the server refuses what the role does not allow (finance for a content admin)');
+
+  // Search: a query nobody finds shows up for the content team, who answers with a synonym.
+  const missing = `introuvable${run}`;
+  await fetch(`${API}/v1/stores/mb-parfum/search?q=${missing}&source=voice`);
+  await nav('Search');
+  await page.getByTestId('search-status').waitFor();
+  await page.getByTestId('zero-queries').getByText(missing).waitFor();
+  await page.getByTestId('synonym-terms').fill(`${missing}, عود`);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByTestId('synonyms').getByText(missing).waitFor();
+  await page.screenshot({ path: join(shots, '4b-search-en.png'), fullPage: true });
+  let found = { meta: { total: 0 } };
+  for (let i = 0; i < 20 && !found.meta.total; i++) {
+    found = (await fetch(`${API}/v1/stores/mb-parfum/search?q=${missing}`).then((r) => r.json())).data;
+    if (!found.meta.total) await new Promise((r) => setTimeout(r, 500));
+  }
+  check(found.meta.total > 0, 'a search without results is listed; after adding a synonym it finds oud perfumes');
+  await page.getByTestId('synonyms').getByRole('row').filter({ hasText: missing }).getByRole('button', { name: 'Remove' }).click();
+  await page.getByTestId('synonyms').getByText(missing).waitFor({ state: 'detached' });
+  check(true, 'a synonym group removed (the change is in the audit log)');
 
   console.log('Audit, flags and commission (Super Admin, French)');
   await page.getByRole('button', { name: 'Log out' }).click();

@@ -9,7 +9,7 @@ export const NAV: { group: MessageKey; sections: Section[] }[] = [
   { group: 'group.merchants', sections: [{ id: 'merchants', permissions: ['merchants.read'] }, { id: 'verification', permissions: ['verification.review'] }] },
   {
     group: 'group.catalog',
-    sections: [{ id: 'products', permissions: ['catalog.read'] }, { id: 'offers', permissions: ['catalog.read'] }, { id: 'inventory', permissions: ['inventory.read'] }],
+    sections: [{ id: 'products', permissions: ['catalog.read'] }, { id: 'offers', permissions: ['catalog.read'] }, { id: 'inventory', permissions: ['inventory.read'] }, { id: 'search', permissions: ['search.manage', 'analytics.read'] }],
   },
   {
     group: 'group.commerce',
