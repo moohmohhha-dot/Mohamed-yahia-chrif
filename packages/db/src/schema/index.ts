@@ -16,3 +16,4 @@ export * from './reviews.js';
 export * from './disputes.js';
 export * from './staff.js';
 export * from './mfa.js';
+export * from './search.js';

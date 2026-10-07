@@ -19,6 +19,7 @@ import { orderRoutes } from './orders/index.js';
 import { shippingRoutes } from './shipping/index.js';
 import { returnRoutes } from './returns/index.js';
 import { reviewRoutes } from './reviews/index.js';
+import { searchRoutes } from './search/index.js';
 import { storeRoutes } from './stores/index.js';
 
 export type ModuleOptions = { authRateLimitMax: number };
@@ -39,6 +40,7 @@ export async function registerModules(app: FastifyInstance, options: ModuleOptio
   await app.register(reviewRoutes);
   await app.register(disputeRoutes);
   await app.register(adminRoutes);
+  await app.register(searchRoutes);
   await app.register(merchantCatalogRoutes);
   await app.register(merchantCenterRoutes);
 }

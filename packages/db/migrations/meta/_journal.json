@@ -232,6 +232,20 @@
       "when": 1791331302801,
       "tag": "0032_mfa",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791369604694,
+      "tag": "0033_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791369606607,
+      "tag": "0034_search_engine",
+      "breakpoints": true
     }
   ]
 }

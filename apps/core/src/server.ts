@@ -6,6 +6,7 @@ import { releaseExpiredReservations } from './modules/inventory/index.js';
 import { releaseMaturedBalances } from './modules/finance/index.js';
 import { securityAlerts } from './modules/admin/index.js';
 import { escalateUnanswered, finalizeDueDisputes } from './modules/disputes/index.js';
+import { processSearchQueue, purgeOldQueries, queueAllProducts } from './modules/search/index.js';
 import { escalateOverdueReturns } from './modules/returns/index.js';
 import { loadConfig } from './config.js';
 import { createHttpPaymentsClient } from './modules/payments/index.js';
@@ -57,6 +58,21 @@ const jobs = setInterval(() => {
   finalizeDueDisputes(db, { payments: services.payments }).catch((e) => app.log.error(e, 'dispute finalization failed'));
 }, 5 * 60_000);
 
+// Search index: products changed (prices, stock, names, reviews…) are re-indexed within seconds; every
+// product once a day (popularity); search history older than 180 days is deleted.
+let indexing = false;
+const searchJob = setInterval(() => {
+  if (indexing) return;
+  indexing = true;
+  processSearchQueue(db)
+    .catch((e) => app.log.error(e, 'search indexing failed'))
+    .finally(() => (indexing = false));
+}, 5_000);
+const searchDaily = setInterval(() => {
+  queueAllProducts(db).catch((e) => app.log.error(e, 'search daily re-index failed'));
+  purgeOldQueries(db).catch((e) => app.log.error(e, 'search history purge failed'));
+}, 24 * 3600_000);
+
 // Security monitoring: high and medium alerts go to the log (an alerting service watches for "security_alert").
 const monitoring = setInterval(() => {
   securityAlerts(db)
@@ -67,6 +83,8 @@ const monitoring = setInterval(() => {
 const shutdown = async () => {
   clearInterval(jobs);
   clearInterval(monitoring);
+  clearInterval(searchJob);
+  clearInterval(searchDaily);
   await app.close();
   await pool.end();
   process.exit(0);

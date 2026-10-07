@@ -38,6 +38,7 @@ export const PERMISSIONS = [
   'fraud.manage', // risk signals, cash-on-delivery blocks
   'security.read', // audit log, staff list
   'security.manage', // end a user's sessions
+  'search.manage', // synonyms, search statistics, re-indexing
   'flags.read',
   'flags.manage',
   // Modules of later phases: the permission exists so roles are ready when the module ships.
@@ -67,8 +68,8 @@ export const ROLE_PERMISSIONS: Record<StaffRole, readonly Permission[]> = {
     'users.read', 'merchants.read', 'catalog.read', 'inventory.read', 'orders.read', 'orders.manage', 'payments.read',
     'returns.read', 'returns.decide', 'disputes.read', 'disputes.handle', 'disputes.decide', 'support.manage',
   ],
-  /** What customers see: products, reviews, pages, ads. */
-  content_admin: [...ALL_STAFF, 'analytics.read', 'merchants.read', 'catalog.read', 'catalog.moderate', 'reviews.moderate', 'cms.manage', 'ads.manage'],
+  /** What customers see: products, reviews, search, pages, ads. */
+  content_admin: [...ALL_STAFF, 'analytics.read', 'merchants.read', 'catalog.read', 'catalog.moderate', 'reviews.moderate', 'search.manage', 'cms.manage', 'ads.manage'],
   /** Accounts, fraud and the audit trail. */
   security_admin: [
     ...ALL_STAFF,
