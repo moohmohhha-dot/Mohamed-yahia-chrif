@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.log
+coverage/
+storage/
+apps/merchant-center/e2e/screenshots/
+apps/admin/e2e/screenshots/

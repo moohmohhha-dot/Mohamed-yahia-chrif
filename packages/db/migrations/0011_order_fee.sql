@@ -1,0 +1,1 @@
+ALTER TABLE "orders" ADD COLUMN "merchant_fee_minor" bigint DEFAULT 0 NOT NULL;
