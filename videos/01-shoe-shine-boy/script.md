@@ -3,7 +3,7 @@
 **Format:** YouTube Shorts / Reels / TikTok, 1080x1920, ~43s
 **Style:** 3D Pixar-style animation, cinematic lighting, warm colors
 **Voice:** English (global audience)
-**Subtitles:** English (white) + Arabic (yellow), burned into the video
+**Subtitles:** Arabic only (yellow), burned into the video
 **Formula:** humiliation → failure → rock bottom → shocking twist → "Part 2?"
 
 ## Characters (keep the same prompt in every scene so faces stay consistent)
@@ -44,4 +44,4 @@ Follow for Part 2 👀
 1. Generate one reference image per character (the prompts above).
 2. Generate each scene image with the character references, then animate each into a 4–5s clip → `clips/01.mp4` … `clips/10.mp4`.
 3. Record the lines (one voice per character) → `audio/voice.mp3`; optional background music → `audio/music.mp3`.
-4. Run `./render.sh` → `output/final.mp4` with both subtitle lines burned in.
+4. Run `./render.sh` → `output/final.mp4` with the Arabic subtitles burned in.

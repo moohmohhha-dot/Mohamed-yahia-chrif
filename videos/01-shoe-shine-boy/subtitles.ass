@@ -8,29 +8,19 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: EN,DejaVu Sans,60,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,5,2,2,70,70,640,1
-Style: AR,DejaVu Sans,54,&H0000E5FF,&H0000E5FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,5,2,2,70,70,400,1
+Style: AR,DejaVu Sans,64,&H0000E5FF,&H0000E5FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,5,2,2,70,70,420,1
 Style: CARD,DejaVu Sans,90,&H00FFFFFF,&H00FFFFFF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,6,3,8,70,70,260,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.20,0:00:04.00,EN,,0,0,0,,You'll be shining shoes\Nyour whole life, kid.
 Dialogue: 0,0:00:00.20,0:00:04.00,AR,,0,0,0,,ستبقى تمسح الأحذية طوال حياتك يا ولد.
-Dialogue: 0,0:00:04.00,0:00:08.00,EN,,0,0,0,,Everyone laughed.\NEven the security guard.
 Dialogue: 0,0:00:04.00,0:00:08.00,AR,,0,0,0,,الجميع ضحك... حتى الحارس.
-Dialogue: 0,0:00:08.00,0:00:12.00,EN,,0,0,0,,But every night, he studied\Nunder the same street lamp.
 Dialogue: 0,0:00:08.00,0:00:12.00,AR,,0,0,0,,لكن كل ليلة، كان يدرس تحت نفس عمود الإنارة.
-Dialogue: 0,0:00:12.00,0:00:16.00,EN,,0,0,0,,Rejected. Rejected. Rejected.
 Dialogue: 0,0:00:12.00,0:00:16.00,AR,,0,0,0,,مرفوض. مرفوض. مرفوض.
-Dialogue: 0,0:00:16.00,0:00:20.00,EN,,0,0,0,,He failed eleven times.
 Dialogue: 0,0:00:16.00,0:00:20.00,AR,,0,0,0,,فشل إحدى عشرة مرة.
-Dialogue: 0,0:00:20.00,0:00:21.60,CARD,,0,0,0,,15 YEARS LATER\N{\fs64\c&H0000E5FF&}بعد 15 سنة
-Dialogue: 0,0:00:21.60,0:00:24.00,EN,,0,0,0,,Sir, we're bankrupt.\NThere's only one buyer left.
+Dialogue: 0,0:00:20.00,0:00:21.60,CARD,,0,0,0,,{\c&H0000E5FF&}بعد 15 سنة
 Dialogue: 0,0:00:21.60,0:00:24.00,AR,,0,0,0,,سيدي، لقد أفلسنا. بقي مشترٍ واحد فقط.
-Dialogue: 0,0:00:25.00,0:00:29.00,EN,,0,0,0,,Who are you?
 Dialogue: 0,0:00:25.00,0:00:29.00,AR,,0,0,0,,من أنت؟
-Dialogue: 0,0:00:29.00,0:00:34.00,EN,,0,0,0,,You told me I'd shine shoes\Nmy whole life.
 Dialogue: 0,0:00:29.00,0:00:34.00,AR,,0,0,0,,قلت لي إنني سأمسح الأحذية طوال حياتي.
-Dialogue: 0,0:00:34.00,0:00:39.00,EN,,0,0,0,,You were right...\Nbut now I own the building.
 Dialogue: 0,0:00:34.00,0:00:39.00,AR,,0,0,0,,كنت محقاً... لكنني الآن أملك المبنى.
-Dialogue: 0,0:00:39.00,0:00:43.00,CARD,,0,0,0,,PART 2?\N{\fs64\c&H0000E5FF&}الجزء الثاني؟ تابعني
+Dialogue: 0,0:00:39.00,0:00:43.00,CARD,,0,0,0,,{\c&H0000E5FF&}الجزء الثاني؟\N{\fs70\c&HFFFFFF&}تابعني حتى لا يفوتك
