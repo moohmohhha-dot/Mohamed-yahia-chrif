@@ -1,6 +1,6 @@
 # The Shoe Shine Boy | ولد مسح الأحذية
 
-**Format:** YouTube Shorts / Reels / TikTok, 1080x1920, ~43s
+**Format:** YouTube Shorts / Reels / TikTok, 1080x1920, ~34s
 **Style:** 3D Pixar-style animation, cinematic lighting, warm colors
 **Voice:** English (global audience)
 **Subtitles:** Arabic only (yellow), burned into the video
@@ -12,20 +12,20 @@
 - **SAM (adult, 25 y/o):** same curly black hair (styled), short beard, navy tailored suit, calm confident smile.
 - **MR. GRANT (CEO, 55 y/o):** heavy man, slicked-back grey hair, thin mustache, expensive black suit, gold watch, arrogant smirk.
 
-## Scenes
+## Scenes (final cut: 6 scenes, ~34s)
 
-| # | Time | Visual (image/video prompt) | Line (EN) | Subtitle (AR) |
-|---|------|------------------------------|-----------|----------------|
-| 1 | 0–4s | Busy city sidewalk in front of a glass skyscraper. MR. GRANT kicks SAM's shoe-shine box over and laughs. | **GRANT:** "You'll be shining shoes your whole life, kid." | ستبقى تمسح الأحذية طوال حياتك يا ولد. |
-| 2 | 4–8s | SAM on his knees picking up coins from the ground; people around point and laugh. | **NARRATOR:** "Everyone laughed. Even the security guard." | الجميع ضحك... حتى الحارس. |
-| 3 | 8–12s | Night. SAM studying an old torn book under a single street lamp, breath visible in the cold. | **NARRATOR:** "But every night, he studied under the same street lamp." | لكن كل ليلة، كان يدرس تحت نفس عمود الإنارة. |
-| 4 | 12–16s | Teenage SAM opening letters one after another, each stamped red "REJECTED". | **NARRATOR:** "Rejected. Rejected. Rejected." | مرفوض. مرفوض. مرفوض. |
-| 5 | 16–20s | SAM in a tiny room, old laptop, fail screens; a tear, then he wipes it and keeps typing. Text "ATTEMPT 11" on screen. | **NARRATOR:** "He failed eleven times." | فشل إحدى عشرة مرة. |
-| 6 | 20–24s | Title card "15 YEARS LATER". Luxury office at the top of the same skyscraper; MR. GRANT sweating, an assistant holds a red report. | **ASSISTANT:** "Sir, we're bankrupt. There's only one buyer left." | سيدي، لقد أفلسنا. بقي مشترٍ واحد فقط. |
-| 7 | 24–29s | Office door opens; silhouette of a young man in a suit walking in, face in shadow. | **GRANT:** "Who are you?" | من أنت؟ |
-| 8 | 29–34s | Close-up of adult SAM stepping into the light, calm smile. | **SAM:** "You told me I'd shine shoes my whole life." | قلت لي إنني سأمسح الأحذية طوال حياتي. |
-| 9 | 34–39s | SAM kneels, takes the same old wooden brush from his pocket, polishes GRANT's shoe. | **SAM:** "You were right... but now I own the building." | كنت محقاً... لكنني الآن أملك المبنى. |
-| 10 | 39–43s | Extreme close-up of GRANT's shocked face, pen falls from his hand. Text on screen. | **NARRATOR:** "Part 2? Follow so you don't miss it." | الجزء الثاني؟ تابعني حتى لا يفوتك. |
+Scene 1 is a Seedance 2.5 clip (720p); scenes 2-6 are Gemini Flash start frames animated with Kling 2.5 Turbo to keep credits low.
+
+| # | Time | Visual | Line (EN voice) | Subtitle (AR) |
+|---|------|--------|-----------------|----------------|
+| 1 | 0–4s | Grant kicks Sam's shoe-shine box over and laughs. | **GRANT:** "You'll be shining shoes your whole life, kid." | ستبقى تمسح الأحذية طوال حياتك يا ولد. |
+| 2 | 4–9s | Night, snow, Sam reads under a street lamp. | **NARRATOR:** "But every night... he studied under the same street lamp." | لكن كل ليلة، كان يدرس تحت نفس عمود الإنارة. |
+| 3 | 9–14s | Teen Sam at a red-glowing laptop, pile of REJECTED letters, wipes a tear and keeps typing. | **NARRATOR:** "He failed eleven times... Fifteen years later..." | فشل إحدى عشرة مرة. / بعد 15 سنة |
+| 4 | 14–19s | Grant's office: bankrupt report, doors open, silhouette walks in. | **ASSISTANT:** "Sir... we're bankrupt. There's only one buyer left." | سيدي، لقد أفلسنا. بقي مشترٍ واحد فقط. |
+| 5 | 19–29s | Adult Sam kneels and polishes Grant's shoe with the old brush, looks up smiling. | **GRANT:** "Who are you?" **SAM:** "You told me I'd shine shoes my whole life." "You were right... but now, I own the building." | من أنت؟ / قلت لي إنني سأمسح الأحذية طوال حياتي. / كنت محقاً... لكنني الآن أملك المبنى. |
+| 6 | 29–34s | Extreme close-up of Grant's shocked face, pen falls. | **NARRATOR:** "Part two? Follow, so you don't miss it." | الجزء الثاني؟ تابعني حتى لا يفوتك |
+
+Voices (ElevenLabs v4): narrator Mark Vale, Grant Obsidian, Sam Bradley, assistant Eryn.
 
 ## Publishing
 
@@ -41,7 +41,6 @@ Follow for Part 2 👀
 
 ## Production steps
 
-1. Generate one reference image per character (the prompts above).
-2. Generate each scene image with the character references, then animate each into a 4–5s clip → `clips/01.mp4` … `clips/10.mp4`.
-3. Record the lines (one voice per character) → `audio/voice.mp3`; optional background music → `audio/music.mp3`.
-4. Run `./render.sh` → `output/final.mp4` with the Arabic subtitles burned in.
+1. Put the scene clips at `clips/01.mp4` … `clips/06.mp4`.
+2. Put the voice lines in `audio/` (`l01_grant.mp3`, `l03_narrator.mp3`, `l05_narrator.mp3`, `l06_assistant.mp3`, `l07_grant.mp3`, `l08_sam.mp3`, `l09_sam.mp3`, `l10_narrator.mp3`) and the score at `audio/music.mp3`.
+3. Run `./render.sh` → `output/final.mp4` with the Arabic subtitles burned in.
