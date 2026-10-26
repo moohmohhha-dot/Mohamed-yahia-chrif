@@ -1,0 +1,317 @@
+{
+  "duration": 60,
+  "fps": 30,
+  "scenes": [
+    {
+      "id": 1,
+      "start": 0,
+      "end": 10,
+      "name": "The Dying Garden"
+    },
+    {
+      "id": 2,
+      "start": 10,
+      "end": 20,
+      "name": "The Leak"
+    },
+    {
+      "id": 3,
+      "start": 20,
+      "end": 30,
+      "name": "The Mentor"
+    },
+    {
+      "id": 4,
+      "start": 30,
+      "end": 40,
+      "name": "The Delivery"
+    },
+    {
+      "id": 5,
+      "start": 40,
+      "end": 50,
+      "name": "The Rain"
+    },
+    {
+      "id": 6,
+      "start": 50,
+      "end": 60,
+      "name": "The Garden Lives"
+    }
+  ],
+  "characters": {
+    "boy": {
+      "name": "LEO",
+      "color": "#ffd23f",
+      "height": 480,
+      "jaw": {
+        "x": 399,
+        "y": 557,
+        "mouth": 104,
+        "w": 240,
+        "h": 130,
+        "open": 22
+      }
+    },
+    "young_man": {
+      "name": "MARCO",
+      "color": "#7ee0ff",
+      "height": 790,
+      "jaw": {
+        "x": 462,
+        "y": 429,
+        "mouth": 150,
+        "w": 300,
+        "h": 140,
+        "open": 24
+      }
+    },
+    "delivery": {
+      "name": "SAM",
+      "color": "#ff6b6b",
+      "height": 780,
+      "jaw": {
+        "x": 346,
+        "y": 321,
+        "mouth": 108,
+        "w": 230,
+        "h": 110,
+        "open": 22
+      }
+    },
+    "elder": {
+      "name": "MR. OMAR",
+      "color": "#b9f27c",
+      "height": 770,
+      "jaw": {
+        "x": 473,
+        "y": 395,
+        "mouth": 108,
+        "w": 260,
+        "h": 110,
+        "open": 19
+      }
+    }
+  },
+  "moves": {
+    "boy": [
+      [
+        0,
+        1450
+      ],
+      [
+        9.6,
+        1450
+      ],
+      [
+        11.6,
+        1950
+      ],
+      [
+        30.0,
+        1950
+      ],
+      [
+        31.6,
+        1150
+      ]
+    ],
+    "young_man": [
+      [
+        0,
+        2950
+      ],
+      [
+        10.9,
+        2950
+      ],
+      [
+        12.7,
+        2350
+      ],
+      [
+        22.3,
+        2350
+      ],
+      [
+        23.0,
+        2330
+      ],
+      [
+        30.0,
+        2330
+      ],
+      [
+        31.6,
+        1400
+      ]
+    ],
+    "elder": [
+      [
+        0,
+        -400
+      ],
+      [
+        19.99,
+        -400
+      ],
+      [
+        20.0,
+        1350
+      ],
+      [
+        21.9,
+        1750
+      ],
+      [
+        30.0,
+        1750
+      ],
+      [
+        31.6,
+        1640
+      ]
+    ],
+    "delivery": [
+      [
+        0,
+        -400
+      ],
+      [
+        29.99,
+        -400
+      ],
+      [
+        30.0,
+        150
+      ],
+      [
+        31.5,
+        900
+      ]
+    ]
+  },
+  "lines": [
+    {
+      "id": "L01",
+      "who": "boy",
+      "start": 0.9,
+      "end": 4.6,
+      "text": "Our garden is dying... but we water it every single day!"
+    },
+    {
+      "id": "L02",
+      "who": "boy",
+      "start": 5.6,
+      "end": 8.6,
+      "text": "So where is all the water going?"
+    },
+    {
+      "id": "L03",
+      "who": "young_man",
+      "start": 12.9,
+      "end": 15.0,
+      "text": "Wait... hear that dripping?"
+    },
+    {
+      "id": "L04",
+      "who": "young_man",
+      "start": 15.4,
+      "end": 19.4,
+      "text": "This old pipe is leaking! The water never reaches the plants."
+    },
+    {
+      "id": "L05",
+      "who": "elder",
+      "start": 20.4,
+      "end": 23.6,
+      "text": "Fix the leak first. Then let the sky help you."
+    },
+    {
+      "id": "L06",
+      "who": "elder",
+      "start": 25.6,
+      "end": 29.6,
+      "text": "One millimeter of rain on one square meter gives one liter of water."
+    },
+    {
+      "id": "L07",
+      "who": "delivery",
+      "start": 31.6,
+      "end": 34.0,
+      "text": "Special delivery! Reusable containers!"
+    },
+    {
+      "id": "L08",
+      "who": "boy",
+      "start": 34.6,
+      "end": 37.0,
+      "text": "We can catch the rain from the roof!"
+    },
+    {
+      "id": "L09",
+      "who": "young_man",
+      "start": 37.4,
+      "end": 39.4,
+      "text": "Let's build it together!"
+    },
+    {
+      "id": "L10",
+      "who": "elder",
+      "start": 40.8,
+      "end": 44.6,
+      "text": "Science plus teamwork. That's how small ideas grow."
+    },
+    {
+      "id": "L11",
+      "who": "boy",
+      "start": 45.4,
+      "end": 48.8,
+      "text": "Look! The tanks are filling up!"
+    },
+    {
+      "id": "L12",
+      "who": "boy",
+      "start": 50.8,
+      "end": 54.0,
+      "text": "One small idea... saved our whole garden!"
+    },
+    {
+      "id": "L13",
+      "who": "elder",
+      "start": 55.0,
+      "end": 58.8,
+      "text": "Think smart. Save water. Change the world."
+    }
+  ],
+  "cards": [
+    {
+      "start": 15.6,
+      "end": 19.8,
+      "icon": "💧",
+      "title": "1 drip per second",
+      "body": "wastes over 11,000 liters a year"
+    },
+    {
+      "start": 25.6,
+      "end": 29.8,
+      "icon": "🌧️",
+      "title": "1 mm of rain on 1 m²",
+      "body": "= 1 liter of free water"
+    }
+  ],
+  "events": {
+    "leakFixed": 25.0,
+    "containersPop": [
+      34.2,
+      34.7
+    ],
+    "buildStart": 36.2,
+    "buildEnd": 39.4,
+    "rainStart": 40.3,
+    "rainEnd": 50.2,
+    "bloomStart": 50.6,
+    "bloomEnd": 53.8,
+    "titleStart": 54.6
+  }
+}
