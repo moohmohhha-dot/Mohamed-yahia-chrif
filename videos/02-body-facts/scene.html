@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>Body Facts</title>
+<style>
+  :root {
+    --bg1: #0b1026; --bg2: #1b0f3a;
+    --accent: #ffd400; --accent2: #22d3ee; --pink: #ff4d8d;
+    --text: #ffffff; --muted: #b9c0e0;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1080px; height: 1920px; overflow: hidden; background: var(--bg1); }
+  body { font-family: "DejaVu Sans", sans-serif; color: var(--text); }
+  #stage {
+    position: relative; width: 1080px; height: 1920px; overflow: hidden;
+    background: radial-gradient(circle at 30% 20%, #2a1a6b 0%, var(--bg2) 40%, var(--bg1) 100%);
+  }
+  /* floating background dots */
+  .dot { position: absolute; border-radius: 50%; opacity: .18; animation: float 12s ease-in-out infinite alternate; }
+  @keyframes float { from { transform: translateY(0) } to { transform: translateY(-220px) } }
+
+  /* channel bar + progress */
+  .brand { position: absolute; top: 90px; left: 0; right: 0; text-align: center; font-size: 38px; font-weight: bold; color: var(--muted); letter-spacing: 2px; }
+  .progress { position: absolute; top: 160px; left: 90px; right: 90px; height: 12px; border-radius: 6px; background: rgba(255,255,255,.12); overflow: hidden; }
+  .progress i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, var(--accent2), var(--accent)); transform-origin: right; animation: prog 41s linear forwards; }
+  @keyframes prog { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+
+  .scene { position: absolute; inset: 0; opacity: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 80px; text-align: center; }
+  .show { animation: sceneIn .5s ease-out forwards, sceneOut .45s ease-in forwards; }
+  @keyframes sceneIn { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes sceneOut { from { opacity: 1 } to { opacity: 0 } }
+
+  .pop { opacity: 0; animation: pop .6s cubic-bezier(.2,1.6,.4,1) forwards; }
+  @keyframes pop { from { opacity: 0; transform: scale(.3) } to { opacity: 1; transform: scale(1) } }
+  .rise { opacity: 0; animation: rise .6s ease-out forwards; }
+  @keyframes rise { from { opacity: 0; transform: translateY(80px) } to { opacity: 1; transform: none } }
+  .pop.pulse { animation: pop .6s cubic-bezier(.2,1.6,.4,1) forwards, pulse 1s ease-in-out infinite; }
+  .rise.pulse { animation: rise .6s ease-out forwards, pulse 1s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { scale: 1 } 50% { scale: 1.08 } }
+
+  /* intro */
+  .hook { font-size: 110px; font-weight: bold; line-height: 1.35; }
+  .hook b { color: var(--accent); }
+  .sub { margin-top: 50px; font-size: 54px; color: var(--muted); }
+
+  /* fact card */
+  .num { width: 170px; height: 170px; border-radius: 50%; background: var(--accent); color: #111; font-size: 96px; font-weight: bold; display: flex; align-items: center; justify-content: center; box-shadow: 0 0 0 18px rgba(255,212,0,.18); }
+  .icon { font-family: "Noto Color Emoji"; font-size: 230px; margin: 70px 0 30px; line-height: 1; }
+  .title { font-size: 66px; font-weight: bold; color: var(--accent2); margin-bottom: 30px; }
+  .big { font-size: 150px; font-weight: bold; color: var(--accent); direction: ltr; line-height: 1.1; }
+  .big small { font-size: 70px; }
+  .desc { margin-top: 40px; font-size: 58px; line-height: 1.55; }
+  .bar { margin-top: 60px; width: 820px; height: 70px; border-radius: 35px; background: rgba(255,255,255,.1); overflow: hidden; position: relative; }
+  .bar i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--pink), var(--accent)); transform-origin: right; transform: scaleX(0); animation: fill 1.4s ease-out forwards; }
+  .bar span { position: relative; z-index: 1; line-height: 70px; font-size: 40px; font-weight: bold; }
+  @keyframes fill { to { transform: scaleX(var(--w)) } }
+
+  /* outro */
+  .cta { font-size: 92px; font-weight: bold; line-height: 1.4; }
+  .btn { margin-top: 70px; padding: 30px 80px; background: #ff0033; border-radius: 30px; font-size: 64px; font-weight: bold; }
+  .q { margin-top: 70px; font-size: 54px; color: var(--muted); line-height: 1.5; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="dot" style="width:260px;height:260px;background:var(--accent2);top:1500px;left:-60px"></div>
+  <div class="dot" style="width:180px;height:180px;background:var(--pink);top:300px;left:850px;animation-delay:-4s"></div>
+  <div class="dot" style="width:120px;height:120px;background:var(--accent);top:1100px;left:900px;animation-delay:-8s"></div>
+
+  <div class="brand">معلومات عامة | هل تعلم؟</div>
+  <div class="progress"><i></i></div>
+
+  <div id="scenes"></div>
+</div>
+
+<script>
+// Each scene: [start, duration, html]. Facts are widely cited textbook figures.
+const facts = [
+  { icon: "🧠", title: "الدماغ", big: "20%", desc: "من طاقة جسمك يستهلكها الدماغ،<br>رغم أن وزنه 2% فقط!", w: .2, bar: "20% من الطاقة" },
+  { icon: "❤️", title: "القلب", big: "100,000", desc: "نبضة تقريباً يخفقها قلبك<br>كل يوم دون توقف", w: 1, bar: "يعمل 24 ساعة" },
+  { icon: "🩸", title: "الأوعية الدموية", big: "100,000 <small>km</small>", desc: "طولها لو وُضعت في خط واحد…<br>تلفّ الأرض أكثر من مرتين!", w: .85, bar: "2.5 × محيط الأرض" },
+  { icon: "🦴", title: "العظام", big: "300 → 206", desc: "يولد الطفل بحوالي 300 عظمة،<br>تلتحم لتصبح 206 عند البلوغ", w: .69, bar: "206 عظمة" },
+  { icon: "👁️", title: "العين", big: "15–20", desc: "رمشة في الدقيقة…<br>أي أكثر من 15,000 رمشة يومياً", w: .5, bar: "15,000+ يومياً" },
+  { icon: "🧬", title: "الخلايا", big: "37 <small>trillion</small>", desc: "خلية تقريباً تكوّن جسمك،<br>أي 37 ألف مليار خلية!", w: .95, bar: "37,000,000,000,000" },
+];
+
+const INTRO = 4.5, FACT = 5.5, OUTRO = 3.5;
+const scenes = [];
+scenes.push([0, INTRO, `
+  <div class="hook pop">6 حقائق <b>مذهلة</b><br>عن جسم الإنسان</div>
+  <div class="sub rise" style="animation-delay:.6s">رقم 3 لن تصدقه! 😳</div>`]);
+facts.forEach((f, i) => {
+  scenes.push([INTRO + i * FACT, FACT, `
+    <div class="num pop">${i + 1}</div>
+    <div class="icon pop pulse" style="animation-delay:.25s,1s">${f.icon}</div>
+    <div class="title rise" style="animation-delay:.4s">${f.title}</div>
+    <div class="big pop" style="animation-delay:.7s">${f.big}</div>
+    <div class="desc rise" style="animation-delay:1.1s">${f.desc}</div>
+    <div class="bar rise" style="animation-delay:1.6s;--w:${f.w}"><i style="animation-delay:1.9s"></i><span>${f.bar}</span></div>`]);
+});
+scenes.push([INTRO + facts.length * FACT, OUTRO, `
+  <div class="cta pop">أيّ حقيقة<br>أدهشتك أكثر؟ 🤔</div>
+  <div class="btn rise pulse" style="animation-delay:.5s,1.2s">اشترك 🔔</div>
+  <div class="q rise" style="animation-delay:.9s">اكتب رقمها في التعليقات 👇</div>`]);
+
+window.TOTAL = INTRO + facts.length * FACT + OUTRO;
+
+const root = document.getElementById("scenes");
+scenes.forEach(([start, dur, html]) => {
+  const el = document.createElement("div");
+  el.className = "scene show";
+  el.innerHTML = html;
+  el.style.animationDelay = `${start}s, ${start + dur - .45}s`;
+  // shift every child animation by the scene start
+  el.querySelectorAll("*").forEach(c => {
+    const d = (c.style.animationDelay || "0s").split(",").map(s => parseFloat(s) + start + "s");
+    c.style.animationDelay = d.join(",");
+  });
+  root.appendChild(el);
+});
+
+// Deterministic frame stepping for the recorder.
+window.seek = t => document.getAnimations().forEach(a => { a.pause(); a.currentTime = t * 1000; });
+</script>
+</body>
+</html>
