@@ -1,1 +1,6 @@
 videos/*/output/
+videos/out/
+videos/node_modules/
+videos/*/audio/*.wav
+videos/*/audio/vo/
+videos/02-facts/docs/dev/
