@@ -6,6 +6,7 @@
 - البنية التقنية وقراراتها: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - ARUMA CORE وخريطة كل الخدمات المشتركة: [docs/CORE.md](docs/CORE.md)
 - نظام التجار والتحقق: [docs/MERCHANTS.md](docs/MERCHANTS.md)
+- متجر MB Parfum للزبائن (وموقع العرض التجريبي): [docs/STOREFRONT.md](docs/STOREFRONT.md)
 - مركز التاجر: [docs/MERCHANT_CENTER.md](docs/MERCHANT_CENTER.md)
 - المخزون: [docs/INVENTORY.md](docs/INVENTORY.md)
 - الطلبات: [docs/ORDERS.md](docs/ORDERS.md)
@@ -39,6 +40,7 @@ pnpm db:migrate:payments      # جداول خدمة الدفع
 pnpm dev:payments             # خدمة الدفع على http://localhost:3200
 pnpm dev                      # ARUMA CORE على http://localhost:3000
 pnpm dev:merchant             # مركز التاجر على http://localhost:5173
+pnpm dev:shop                 # متجر MB Parfum على http://localhost:5175
 ```
 
 جرّب مثلًا:
